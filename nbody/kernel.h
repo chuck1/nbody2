@@ -3,10 +3,22 @@ struct Pair
 {
 	int i;
 	int j;
+
+	// distance
+	double d;
+
+	// relative speed
+	double s;
+
+	double dt;
 };
 struct Header
 {
 	int bodies_size;
+	double t;
+	double dt;
+
+	int count_pen;
 };
 struct Vec3
 {

@@ -66,14 +66,22 @@ void OCL::Manager::init()
 
 	char device_version[512];
 	unsigned int device_max_work_group_size;
+	unsigned int device_max_work_item_dimensions;
+	unsigned int * device_max_work_item_sizes;
 	cl_ulong device_global_mem_size;
 
 	clGetDeviceInfo(device_id, CL_DEVICE_VERSION, 512, device_version, NULL);
 	clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(unsigned int), &device_max_work_group_size, NULL);
+	clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS, sizeof(unsigned int), &device_max_work_item_dimensions, NULL);
+	
+	device_max_work_item_sizes = new unsigned int[device_max_work_item_dimensions];
+
+	clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_ITEM_SIZES, sizeof(unsigned int)*device_max_work_item_dimensions, device_max_work_item_sizes, NULL);
 	clGetDeviceInfo(device_id, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(cl_ulong), &device_global_mem_size, NULL);
 
 	printf("CL_DEVICE_VERSION:             %s\n", device_version);
 	printf("CL_DEVICE_MAX_WORK_GROUP_SIZE: %u\n", device_max_work_group_size);
+	printf("CL_DEVICE_MAX_WORK_ITEM_SIZES: %u\n", device_max_work_item_sizes[0]);
 	printf("CL_DEVICE_GLOBAL_MEM_SIZE:     %lu\n", device_global_mem_size);
 
 
@@ -118,10 +126,42 @@ void	OCL::Kernel::set_arg(std::shared_ptr<MemObj> memobj, int arg)
 	sprintf_s(s, "clSetKernelArg %i", arg);
 	errorcheck(s, ret);
 }
+void	OCL::Kernel::set_arg(int arg, unsigned int size)
+{
+	cl_int ret;
+	ret = clSetKernelArg(id, arg, size, NULL);
+
+	char s[128];
+	sprintf_s(s, "clSetKernelArg %i", arg);
+	errorcheck(s, ret);
+}
 void	OCL::Kernel::enqueue_ND_range_kernel(unsigned int global_size, unsigned int local_size)
 {
 	std::shared_ptr<Manager> mgr = _M_mgr.lock();
 	cl_command_queue cq = mgr->_M_command_queue;
 	cl_int ret = clEnqueueNDRangeKernel(cq, id, 1, 0, &global_size, &local_size, 0, 0, 0);
 	OCL::errorcheck("clEnqueueNDRangeKernel", ret);
+}
+
+
+
+
+std::shared_ptr<OCL::Kernel>		OCL::Program::create_kernel(char const * kernel_name)
+{
+	cl_int ret;
+
+	cl_kernel kernel_id = clCreateKernel(id, kernel_name, &ret);
+
+	errorcheck("clCreateKernel", ret);
+
+	auto kernel = std::make_shared<Kernel>();
+
+	kernel->id = kernel_id;
+	kernel->_M_mgr = _M_mgr;
+
+	_M_kernels.push_back(kernel);
+
+
+
+	return kernel;
 }

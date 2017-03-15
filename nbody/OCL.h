@@ -122,7 +122,10 @@ namespace OCL
 	{
 	public:
 		~Kernel();
+		
 		void	set_arg(std::shared_ptr<MemObj> memobj, int arg);
+		void	set_arg(int arg, unsigned int size);
+
 		void enqueue_ND_range_kernel(unsigned int global_size, unsigned int local_size);
 		
 		cl_kernel id;
@@ -139,25 +142,7 @@ namespace OCL
 			cl_int ret;
 			ret = clReleaseProgram(id);
 		}
-		std::shared_ptr<Kernel>		create_kernel(char const * kernel_name)
-		{
-			cl_int ret;
-
-			cl_kernel kernel_id = clCreateKernel(id, kernel_name, &ret);
-
-			errorcheck("clCreateKernel", ret);
-
-			auto kernel = std::make_shared<Kernel>();
-
-			kernel->id = kernel_id;
-			kernel->_M_mgr = _M_mgr;
-
-			_M_kernels.push_back(kernel);
-
-			
-
-			return kernel;
-		}
+		std::shared_ptr<Kernel>		create_kernel(char const * kernel_name);
 
 		std::vector<std::shared_ptr<Kernel>>		_M_kernels;
 
@@ -207,8 +192,8 @@ namespace OCL
 
 				source_str[i][source_size[i]] = 0;
 
-				printf("source size = %u\n", source_size[i]);
-				printf("%s\n", source_str[i]);
+				//printf("source size = %u\n", source_size[i]);
+				//printf("%s\n", source_str[i]);
 				
 			}
 
