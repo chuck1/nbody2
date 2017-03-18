@@ -30,6 +30,9 @@
     <ClInclude Include="kernel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="RenderGeometry.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -44,5 +47,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="kernel.cl" />
+    <None Include="SimpleFragmentShader.fragmentshader" />
+    <None Include="SimpleVertexShader.vertexshader" />
   </ItemGroup>
 </Project>

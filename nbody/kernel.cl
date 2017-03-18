@@ -19,7 +19,12 @@ double vector_length(struct Vec3 * v)
 	return sqrt(v->x * v->x + v->y * v->y + v->z * v->z);
 }
 
-
+double CDF_uniform(double a, double b, double x)
+{
+	if (x < a) return 0;
+	if (x > b) return 1;
+	return (x - a) / (b - a);
+}
 
 __kernel void k_min(
 	__global const double * input,
@@ -140,15 +145,11 @@ __kernel void calc_acc(
 		__global struct Body * b1 = &bodies[i];
 		__global struct Body * b2 = &bodies[j];
 
-		double x = b1->pos.x - b2->pos.x;
-		double y = b1->pos.y - b2->pos.y;
-		double z = b1->pos.z - b2->pos.z;
+		struct Vec3 R = vector_sub(&b1->pos, &b2->pos);
 
-		double rs = x*x + y*y + z*z;
-
-		double r = sqrt(rs);
+		double r = vector_length(&R);
 		
-		struct Vec3 v = vector_sub(&b1->vel, &b2->vel);
+		struct Vec3 v = vector_sub(&b2->vel, &b1->vel);
 		double s = vector_length(&v);
 
 		// save
@@ -158,20 +159,37 @@ __kernel void calc_acc(
 		// calc dt
 		dt_input[ind] = TIME_STEP_FACTOR * r / s;
 		
-		
-		double F = G / rs;
-
 		double m0 = b1->mass;
 		double m1 = b2->mass;
 
-		double pen = b1->radius + b2->radius - p->d;
+		double F = G * b1->mass * b2->mass / r / r;
+		
+		double a0 = G * b2->mass / r/r;
+		double a1 = G * b1->mass / r/r;
 
-		if (pen > 0)
+		// positive penetration is no penetration
+
+		double pen = p->d - b1->radius - b2->radius;
+
+		double pen_frac = max(pen / b1->radius, pen / b2->radius);
+
+		if (pen < 0)
 		{
 			atomic_inc(&header->count_pen);
 			
-			if (0)
+			// damping force
+			// must have body rotation in order to allow two touching bodies to spin together
+
+			if (1)
 			{
+				// repulsive force shall be equal and opposite to gravitaional force
+
+				double c = CDF_uniform(-0.1, 0.1, pen_frac);
+
+				a0 = a0 * (2.0 * c - 1.0);
+				a1 = a1 * (2.0 * c - 1.0);
+
+				/*
 				double d0 = pen * (m1 / (m0 + m1)) * 0.5;
 				b1->pos.x += (x / rs) * d0;
 				b1->pos.y += (y / rs) * d0;
@@ -181,18 +199,18 @@ __kernel void calc_acc(
 				b2->pos.x += (x / rs) * d1;
 				b2->pos.y += (y / rs) * d1;
 				b2->pos.z += (z / rs) * d1;
-
+				*/
 				//conserve momentum!
 			}
 		}
 
-		b1->acc.x -= x / r * F * b2->mass;
-		b1->acc.y -= y / r * F * b2->mass;
-		b1->acc.z -= z / r * F * b2->mass;
+		b1->acc.x -= R.x / r * a0;
+		b1->acc.y -= R.y / r * a0;
+		b1->acc.z -= R.z / r * a0;
 
-		b2->acc.x += x / r * F * b1->mass;
-		b2->acc.y += y / r * F * b1->mass;
-		b2->acc.z += z / r * F * b1->mass;
+		b2->acc.x += R.x / r * a1;
+		b2->acc.y += R.y / r * a1;
+		b2->acc.z += R.z / r * a1;
 	}
 
 }

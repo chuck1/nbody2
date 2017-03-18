@@ -52,7 +52,7 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>C:\opengl-wrappers\glfw\glfw-3.2.1.bin.WIN64\include;C:\opengl-wrappers\glew\glew-2.0.0\include;$(CUDA_PATH)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\crymal\Documents\glm-0.9.8.4;C:\opengl-wrappers\glfw\glfw-3.2.1.bin.WIN64\include;C:\opengl-wrappers\glew\glew-2.0.0\include;$(CUDA_PATH)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -84,6 +84,7 @@
   <ItemGroup>
     <ClInclude Include="kernel.h" />
     <ClInclude Include="OCL.h" />
+    <ClInclude Include="RenderGeometry.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>
@@ -97,6 +98,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="kernel.cl" />
+    <None Include="SimpleFragmentShader.fragmentshader" />
+    <None Include="SimpleVertexShader.vertexshader" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

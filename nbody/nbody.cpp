@@ -8,22 +8,49 @@
 #include <iostream>
 #include <fstream>
 #include <ctime>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string>
+#include <algorithm>
 
 #include <Windows.h>
+#include <GL/glew.h>
 #include <GL/GL.h>
 #include <GL/GLU.h>
 #include <GLFW/glfw3.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/transform.hpp>
 
 #include "OCL.h"
 #include "kernel.h"
+#include "RenderGeometry.h"
 
 double G = 6.67408E-11;
 double pi = 3.1415926535897;
 
-int m = 100000;
-int n = 20;
+double eye_z = 800.0;
+double perspective_near = 1.0;
+double perspective_far = 10000.0;
+
+int m = 10000;
+int n = 2;
 int p = n * (n - 1) / 2;
+
+Sphere sphere;
+GLuint matrixID_mv;
+GLuint matrixID_p;
+glm::mat4 proj, view;
+
+void gl_check_error()
+{
+	GLenum err(glGetError());
+	if (err != GL_NO_ERROR) {
+		printf("GL error %u %s\n", err, gluErrorString(err));
+		getchar();
+		exit(1);
+	}
+}
 
 
 class Frame
@@ -81,7 +108,13 @@ void generate_binary_system(
 	m0 = 1.0E11;
 	m1 = 1.0E11;
 
-	double d = 200.0;
+	b0.radius = pow(3.0 * b0.mass / 4.0 / pi / 5000.0, 1.0 / 3.0);
+	b1.radius = pow(3.0 * b1.mass / 4.0 / pi / 5000.0, 1.0 / 3.0);
+
+	printf("b0.radius = %f\n", b0.radius);
+	printf("b1.radius = %f\n", b1.radius);
+
+	double d = 1000.0;
 
 	x0 = d * m1 / (m0 + m1);
 	x1 = x0 - d;
@@ -178,9 +211,55 @@ void generate_bodies(
 
 }
 
+
+void draw_cube()
+{
+	glBegin(GL_QUADS);
+
+	// top
+	glNormal3f(0.0f, 1.0f, 0.0f);
+	glVertex3f(-1.0f, 1.0f, 1.0f);
+	glVertex3f(1.0f, 1.0f, 1.0f);
+	glVertex3f(1.0f, 1.0f, -1.0f);
+	glVertex3f(-1.0f, 1.0f, -1.0f);
+
+	glNormal3f(0.0f, -1.0f, 0.0f);
+	glVertex3f(-1.0f, -1.0f, 1.0f);
+	glVertex3f(1.0f, -1.0f, 1.0f);
+	glVertex3f(1.0f, -1.0f, -1.0f);
+	glVertex3f(-1.0f, -1.0f, -1.0f);
+
+	// front
+	glNormal3f(0.0f, 0.0f, 1.0f);
+	glVertex3f(1.0f, -1.0f, 1.0f);
+	glVertex3f(1.0f, 1.0f, 1.0f);
+	glVertex3f(-1.0f, 1.0f, 1.0f);
+	glVertex3f(-1.0f, -1.0f, 1.0f);
+
+	glNormal3f(0.0f, 0.0f, -1.0f);
+	glVertex3f(1.0f, -1.0f, -1.0f);
+	glVertex3f(1.0f, 1.0f, -1.0f);
+	glVertex3f(-1.0f, 1.0f, -1.0f);
+	glVertex3f(-1.0f, -1.0f, -1.0f);
+
+	// right
+	glNormal3f(1.0f, 0.0f, 0.0f);
+	glVertex3f(1.0f, 1.0f, -1.0f);
+	glVertex3f(1.0f, 1.0f, 1.0f);
+	glVertex3f(1.0f, -1.0f, 1.0f);
+	glVertex3f(1.0f, -1.0f, -1.0f);
+
+	glNormal3f(-1.0f, 0.0f, 0.0f);
+	glVertex3f(-1.0f, 1.0f, -1.0f);
+	glVertex3f(-1.0f, 1.0f, 1.0f);
+	glVertex3f(-1.0f, -1.0f, 1.0f);
+	glVertex3f(-1.0f, -1.0f, -1.0f);
+
+	glEnd();
+}
 void draw_body(Body & b)
 {
-	glPushMatrix();
+	/*glPushMatrix();
 	{
 		glTranslated(b.pos.x, b.pos.y, b.pos.z);
 
@@ -189,50 +268,21 @@ void draw_body(Body & b)
 
 		glColor3f(1.0f, 1.0f, 1.0f);
 
-		glBegin(GL_QUADS);
-		
-		// top
-		glNormal3f( 0.0f, 1.0f, 0.0f);
-		glVertex3f(-1.0f, 1.0f, 1.0f);
-		glVertex3f( 1.0f, 1.0f, 1.0f);
-		glVertex3f( 1.0f, 1.0f, -1.0f);
-		glVertex3f(-1.0f, 1.0f, -1.0f);
-
-		glNormal3f( 0.0f, -1.0f,  0.0f);
-		glVertex3f(-1.0f, -1.0f,  1.0f);
-		glVertex3f( 1.0f, -1.0f,  1.0f);
-		glVertex3f( 1.0f, -1.0f, -1.0f);
-		glVertex3f(-1.0f, -1.0f, -1.0f);
-
-		// front
-		glNormal3f( 0.0f,  0.0f, 1.0f);
-		glVertex3f( 1.0f, -1.0f, 1.0f);
-		glVertex3f( 1.0f,  1.0f, 1.0f);
-		glVertex3f(-1.0f,  1.0f, 1.0f);
-		glVertex3f(-1.0f, -1.0f, 1.0f);
-
-		glNormal3f(0.0f, 0.0f, -1.0f);
-		glVertex3f(1.0f, -1.0f, -1.0f);
-		glVertex3f(1.0f, 1.0f, -1.0f);
-		glVertex3f(-1.0f, 1.0f, -1.0f);
-		glVertex3f(-1.0f, -1.0f, -1.0f);
-
-		// right
-		glNormal3f(1.0f,  0.0f,  0.0f);
-		glVertex3f(1.0f,  1.0f, -1.0f);
-		glVertex3f(1.0f,  1.0f,  1.0f);
-		glVertex3f(1.0f, -1.0f,  1.0f);
-		glVertex3f(1.0f, -1.0f, -1.0f);
-
-		glNormal3f(-1.0f, 0.0f, 0.0f);
-		glVertex3f(-1.0f, 1.0f, -1.0f);
-		glVertex3f(-1.0f, 1.0f, 1.0f);
-		glVertex3f(-1.0f, -1.0f, 1.0f);
-		glVertex3f(-1.0f, -1.0f, -1.0f);
-
-		glEnd();
+		draw_cube();
 	}
-	glPopMatrix();
+	glPopMatrix();*/
+
+
+	glm::mat4 model = glm::translate(glm::vec3(b.pos.x, b.pos.y, b.pos.z)) * glm::scale(glm::vec3(b.radius));
+
+	glm::mat4 mv = view * model;
+
+	glUniformMatrix4fv(matrixID_mv, 1, GL_FALSE, &mv[0][0]);
+	gl_check_error();
+
+	sphere.drawTriangles(); gl_check_error();
+
+
 }
 void draw_frame(Frame & frame)
 {
@@ -243,6 +293,7 @@ void draw_frame(Frame & frame)
 }
 
 
+
 class Plot
 {
 public:
@@ -251,6 +302,114 @@ public:
 	unsigned int i;
 	bool pause;
 } plot;
+
+GLuint LoadShaders(const char * vertex_file_path, const char * fragment_file_path){
+
+	// Create the shaders
+	GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
+	GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
+
+	// Read the Vertex Shader code from the file
+	std::string VertexShaderCode;
+	std::ifstream VertexShaderStream(vertex_file_path, std::ios::in);
+	if (VertexShaderStream.is_open()){
+		std::string Line = "";
+		while (getline(VertexShaderStream, Line))
+			VertexShaderCode += "\n" + Line;
+		VertexShaderStream.close();
+	}
+	else{
+		printf("Impossible to open %s. Are you in the right directory ? Don't forget to read the FAQ !\n", vertex_file_path);
+		getchar();
+		return 0;
+	}
+
+	// Read the Fragment Shader code from the file
+	std::string FragmentShaderCode;
+	std::ifstream FragmentShaderStream(fragment_file_path, std::ios::in);
+	if (FragmentShaderStream.is_open()){
+		std::string Line = "";
+		while (getline(FragmentShaderStream, Line))
+			FragmentShaderCode += "\n" + Line;
+		FragmentShaderStream.close();
+	}
+
+	GLint Result = GL_FALSE;
+	int InfoLogLength;
+
+
+	// Compile Vertex Shader
+	printf("Compiling shader : %s\n", vertex_file_path);
+	char const * VertexSourcePointer = VertexShaderCode.c_str();
+	glShaderSource(VertexShaderID, 1, &VertexSourcePointer, NULL);
+	glCompileShader(VertexShaderID);
+
+	// Check Vertex Shader
+	glGetShaderiv(VertexShaderID, GL_COMPILE_STATUS, &Result);
+	glGetShaderiv(VertexShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+	if (InfoLogLength > 0){
+		std::vector<char> VertexShaderErrorMessage(InfoLogLength + 1);
+		glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
+		printf("%s\n", &VertexShaderErrorMessage[0]);
+	}
+
+
+
+	// Compile Fragment Shader
+	printf("Compiling shader : %s\n", fragment_file_path);
+	char const * FragmentSourcePointer = FragmentShaderCode.c_str();
+	glShaderSource(FragmentShaderID, 1, &FragmentSourcePointer, NULL);
+	glCompileShader(FragmentShaderID);
+
+	// Check Fragment Shader
+	glGetShaderiv(FragmentShaderID, GL_COMPILE_STATUS, &Result);
+	glGetShaderiv(FragmentShaderID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+	if (InfoLogLength > 0){
+		std::vector<char> FragmentShaderErrorMessage(InfoLogLength + 1);
+		glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
+		printf("%s\n", &FragmentShaderErrorMessage[0]);
+	}
+
+
+
+	// Link the program
+	printf("Linking program\n");
+	GLuint ProgramID = glCreateProgram();
+	glAttachShader(ProgramID, VertexShaderID);
+	glAttachShader(ProgramID, FragmentShaderID);
+	glLinkProgram(ProgramID);
+
+	// Check the program
+	glGetProgramiv(ProgramID, GL_LINK_STATUS, &Result);
+	glGetProgramiv(ProgramID, GL_INFO_LOG_LENGTH, &InfoLogLength);
+	if (InfoLogLength > 0){
+		std::vector<char> ProgramErrorMessage(InfoLogLength + 1);
+		glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
+		printf("%s\n", &ProgramErrorMessage[0]);
+	}
+
+
+	glDetachShader(ProgramID, VertexShaderID);
+	glDetachShader(ProgramID, FragmentShaderID);
+
+	glDeleteShader(VertexShaderID);
+	glDeleteShader(FragmentShaderID);
+
+	return ProgramID;
+}
+
+void print(glm::mat4 const & m)
+{
+	for (int i = 0; i < 4; ++i)
+	{
+		printf("    %8.2f%8.2f%8.2f%8.2f\n", m[i][0], m[i][1], m[i][2], m[i][3]);
+	}
+}
+void print(glm::vec4 const & m)
+{
+	printf("    %8.2f%8.2f%8.2f%8.2f\n", m[0], m[1], m[2], m[3]);
+}
+
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
@@ -274,6 +433,19 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 		plot.pause = true;
 	}
 }
+void init_glew()
+{
+	//Initialize GLEW
+	GLenum err = glewInit();
+
+	//If GLEW hasn't initialized
+	if (err != GLEW_OK)
+	{
+		fprintf(stderr, "Error: %s\n", glewGetErrorString(err));
+		getchar();
+		exit(-1);
+	}
+}
 void plotfunc(History & hist)
 {
 	plot.t_factor = 1.0E1;
@@ -281,15 +453,16 @@ void plotfunc(History & hist)
 	plot.i = 0;
 	plot.pause = false;
 
-	GLFWwindow* window;
-
 	if (!glfwInit())
 	{
 		exit(EXIT_FAILURE);
 	}
 
+	int width = 200;
+	int height = 200;
+
 	//Create a window and create its OpenGL context
-	window = glfwCreateWindow(200, 200, "Test Window", NULL, NULL);
+	GLFWwindow * window = glfwCreateWindow(width, height, "Test Window", NULL, NULL);
 	if (!window)
 	{
 		fprintf(stderr, "Failed to open GLFW window.\n");
@@ -301,12 +474,49 @@ void plotfunc(History & hist)
 
 	glfwMakeContextCurrent(window);
 
-	gluPerspective(90, 1, 100, 10000);
+	init_glew();
 
-	gluLookAt(
-		0, 0, 400, 
-		0, 0, 0, 
-		0, 1, 0);
+	
+	sphere.construct();
+	sphere.setup();
+
+	Rect rect;
+	//rect.construct();
+	//rect.setup();
+
+	proj = glm::perspective<float>(
+		glm::radians(90.0f),
+		(float)width / (float)height,
+		perspective_near,
+		perspective_far);
+
+	view = glm::lookAt(
+		glm::vec3(0, 0, eye_z), // Camera is at (4,3,3), in World Space
+		glm::vec3(0, 0, 0), // and looks at the origin
+		glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
+		);
+
+	// Create and compile our GLSL program from the shaders
+	GLuint programID = LoadShaders("SimpleVertexShader.vertexshader", "SimpleFragmentShader.fragmentshader");
+
+	matrixID_mv = glGetUniformLocation(programID, "MV");
+	matrixID_p = glGetUniformLocation(programID, "P");
+	gl_check_error();
+
+	printf("matrixID_mv = %u\n", matrixID_mv);
+	printf("matrixID_p  = %u\n", matrixID_p);
+
+	
+	/*
+	print(model); printf("\n");
+	print(view); printf("\n");
+	print(proj); printf("\n");
+	print(mvp); printf("\n");*/
+
+	glm::vec4 v(1, 1, 0, 1);
+
+	//v = mvp * v;
+	//print(v); printf("\n");
 
 	double t0 = glfwGetTime();
 
@@ -318,13 +528,34 @@ void plotfunc(History & hist)
 
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+		glUseProgram(programID);
+
+		glUniformMatrix4fv(matrixID_p, 1, GL_FALSE, &proj[0][0]);
+		gl_check_error();
+
 		Frame & f = hist.frames[plot.i];
 
-		glPushMatrix();
+
+		draw_frame(f);
+		
+
+		//sphere.drawTriangles();
+
+		//glPushMatrix();
 		{
-			draw_frame(f);	
+			//glRotatef(t1 * pi, 1,0,0);
+
+			//sphere.drawTriangles(); gl_check_error();
+			
+			//rect.drawTriangles();
+			
+			
+			
+			//draw_cube();
 		}
-		glPopMatrix();
+		//glPopMatrix();
+
+
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
@@ -366,6 +597,8 @@ unsigned int next_power_of_two(unsigned int x)
 	return ret;
 }
 
+
+
 int _tmain(int argc, _TCHAR* argv[])
 {
 	unsigned int file_size = m * (n * sizeof(Body) + p * sizeof(Pair));
@@ -381,8 +614,9 @@ int _tmain(int argc, _TCHAR* argv[])
 	std::vector<Body> bodies(n);
 	std::vector<Pair> pairs(n*(n-1)/2);
 
-	//generate_binary_system(bodies, pairs);
-	generate_bodies(bodies, pairs);
+	generate_binary_system(bodies, pairs);
+	//generate_bodies(bodies, pairs);
+	
 	generate_pairs(bodies, pairs);
 
 	Header header;
@@ -458,7 +692,7 @@ int _tmain(int argc, _TCHAR* argv[])
 		double t0 = header.t;
 
 		kernel_calc_acc->enqueue_ND_range_kernel(next_power_of_two(p), 1);
-		kernel_dt_min->enqueue_ND_range_kernel(next_power_of_two(p), 256);
+		kernel_dt_min->enqueue_ND_range_kernel(next_power_of_two(p), std::min<unsigned int>(next_power_of_two(p), 1024));
 
 		kernel_dt_store->enqueue_ND_range_kernel(1, 1);
 

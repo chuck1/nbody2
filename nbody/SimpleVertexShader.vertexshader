@@ -1,0 +1,26 @@
+#version 330 core
+
+uniform mat4 MV;
+uniform mat4 P;
+
+layout(location = 0) in vec4 vertex_position;
+layout(location = 1) in vec3 vertex_normal;
+
+out vec4 p;
+out vec3 n;
+
+void main()
+{
+	mat4 MVP = P * MV;
+
+	p = MVP * vertex_position;
+	p = p / p.w;
+
+	gl_Position = p;
+	
+	//n = vec3(MV * vec4(vertex_normal,0));
+	n = normalize(mat3(MV) * vertex_normal);
+}
+
+
+

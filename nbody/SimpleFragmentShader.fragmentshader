@@ -1,0 +1,21 @@
+#version 330 core
+
+out vec4 color;
+
+in vec4 p;
+in vec3 n;
+
+void main()
+{
+	vec4 mat_diffuse = vec4(0,1,1,0);
+
+	// directional light
+	vec3 L = normalize(vec3(1,1,1));
+
+	vec4 diffuse = mat_diffuse * max(dot(n,L), 0.0);
+	
+	color = diffuse;
+
+	color = vec4(n * 0.5 + 0.5, 0);
+}
+
