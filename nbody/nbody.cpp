@@ -34,7 +34,7 @@ double perspective_near = 1.0;
 double perspective_far = 10000.0;
 
 int m = 10000;
-int n = 2;
+int n = 20;
 int p = n * (n - 1) / 2;
 
 Sphere sphere;
@@ -458,8 +458,8 @@ void plotfunc(History & hist)
 		exit(EXIT_FAILURE);
 	}
 
-	int width = 200;
-	int height = 200;
+	int width = 800;
+	int height = 800;
 
 	//Create a window and create its OpenGL context
 	GLFWwindow * window = glfwCreateWindow(width, height, "Test Window", NULL, NULL);
@@ -614,8 +614,8 @@ int _tmain(int argc, _TCHAR* argv[])
 	std::vector<Body> bodies(n);
 	std::vector<Pair> pairs(n*(n-1)/2);
 
-	generate_binary_system(bodies, pairs);
-	//generate_bodies(bodies, pairs);
+	//generate_binary_system(bodies, pairs);
+	generate_bodies(bodies, pairs);
 	
 	generate_pairs(bodies, pairs);
 
