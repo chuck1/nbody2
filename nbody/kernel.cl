@@ -3,20 +3,70 @@
 
 #define TIME_STEP_FACTOR (0.001)
 
-struct Vec3 vector_sub(
+struct Vec3		vector_sub(
 	__global struct Vec3 * a, 
 	__global struct Vec3 * b)
 {
 	struct Vec3 ret;
-	ret.x = a->x - b->x;
-	ret.y = a->y - b->y;
-	ret.z = a->z - b->z;
+	for (int i = 0; i < 3;++i) ret.v[i] = a->v[i] - b->v[i];
+	return ret;
+}
+void			vector_sub_self_gg(
+	__global struct Vec3 * a,
+	__global struct Vec3 * b)
+{
+	for (int i = 0; i < 3; ++i) a->v[i] -= b->v[i];
+}
+void			vector_sub_self_gp(
+	__global struct Vec3 * a,
+	struct Vec3 * b)
+{
+	for (int i = 0; i < 3; ++i) a->v[i] -= b->v[i];
+}
+struct Vec3 *		vector_add_ppp(
+	struct Vec3 * ret,
+	struct Vec3 * a,
+	struct Vec3 * b)
+{
+	for (int i = 0; i < 3; ++i) ret->v[i] = a->v[i] + b->v[i];
+	return ret;
+}
+void			vector_add_self_gg(
+	__global struct Vec3 * a,
+	__global struct Vec3 * b)
+{
+	for (int i = 0; i < 3; ++i) a->v[i] += b->v[i];
+}
+void			vector_add_self_gp(
+	__global struct Vec3 * a,
+	struct Vec3 * b)
+{
+	for (int i = 0; i < 3; ++i) a->v[i] += b->v[i];
+}
+struct Vec3 *	vector_mul_pg(
+	struct Vec3 * ret,
+	__global struct Vec3 * a,
+	double b)
+{
+	for (int i = 0; i < 3; ++i) ret->v[i] = a->v[i] * b;
+	return ret;
+}
+struct Vec3 *	vector_mul_pp(
+	struct Vec3 * ret,
+	struct Vec3 * a,
+	double b)
+{
+	for (int i = 0; i < 3; ++i) ret->v[i] = a->v[i] * b;
 	return ret;
 }
 
-double vector_length(struct Vec3 * v)
+
+
+double			vector_length(struct Vec3 * v)
 {
-	return sqrt(v->x * v->x + v->y * v->y + v->z * v->z);
+	double l = 0;
+	for (int i = 0; i < 3; ++i) l += v->v[0] * v->v[0];
+	return sqrt(l);
 }
 
 double CDF_uniform(double a, double b, double x)
@@ -164,8 +214,8 @@ __kernel void calc_acc(
 
 		double F = G * b1->mass * b2->mass / r / r;
 		
-		double a0 = G * b2->mass / r/r;
-		double a1 = G * b1->mass / r/r;
+		double a0 = G * b2->mass / r / r;
+		double a1 = G * b1->mass / r / r;
 
 		// positive penetration is no penetration
 
@@ -204,15 +254,12 @@ __kernel void calc_acc(
 			}
 		}
 
-		b1->acc.x -= R.x / r * a0;
-		b1->acc.y -= R.y / r * a0;
-		b1->acc.z -= R.z / r * a0;
-
-		b2->acc.x += R.x / r * a1;
-		b2->acc.y += R.y / r * a1;
-		b2->acc.z += R.z / r * a1;
+		struct Vec3 acc0; 
+		struct Vec3 acc1; 
+		
+		vector_sub_self_gp(&b1->acc, vector_mul_pp(&acc0, &R, a0 / r));
+		vector_add_self_gp(&b2->acc, vector_mul_pp(&acc1, &R, a1 / r));
 	}
-
 }
 
 __kernel void step_pos(
@@ -240,25 +287,18 @@ __kernel void step_pos(
 		struct Vec3 v0 = b->vel;
 		struct Vec3 a0 = b->acc;
 
-		b->vel.x += b->acc.x * dt;
-		b->vel.y += b->acc.y * dt;
-		b->vel.z += b->acc.z * dt;
+		struct Vec3 temp0, temp1, temp2;
 
-		if (0)
-		{
-			b->pos.x += b->vel.x * dt;
-			b->pos.y += b->vel.y * dt;
-			b->pos.z += b->vel.z * dt;
-		}
-		else{
-			b->pos.x += v0.x * dt + a0.x / 2 * dt * dt;
-			b->pos.y += v0.y * dt + a0.y / 2 * dt * dt;
-			b->pos.z += v0.z * dt + a0.z / 2 * dt * dt;
-		}
+		vector_add_self_gp(&b->vel, vector_mul_pg(&temp0, &b->acc, dt));
 
-		b->acc.x = 0;
-		b->acc.y = 0;
-		b->acc.z = 0;
+		vector_add_self_gp(&b->pos, vector_add_ppp(&temp0, vector_mul_pp(&temp1, &v0, dt), vector_mul_pp(&temp2, &a0, dt * dt / 2.0)));
+
+		b->acc.v[0] = 0;
+		b->acc.v[1] = 0;
+		b->acc.v[2] = 0;
+
+
+		
 	}
 }
 

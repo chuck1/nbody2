@@ -4,6 +4,7 @@
 #include "stdafx.h"
 
 #include <vector>
+#include <map>
 #include <memory>
 #include <iostream>
 #include <fstream>
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <string>
 #include <algorithm>
+#include <regex>
 
 #include <Windows.h>
 #include <GL/glew.h>
@@ -21,10 +23,13 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/transform.hpp>
+#include <glm/gtx/quaternion.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include "OCL.h"
 #include "kernel.h"
 #include "RenderGeometry.h"
+#include "mymath.h"
 
 double G = 6.67408E-11;
 double pi = 3.1415926535897;
@@ -33,14 +38,33 @@ double eye_z = 800.0;
 double perspective_near = 1.0;
 double perspective_far = 10000.0;
 
-int m = 10000;
-int n = 20;
+int m = 0;
+int n = 5;
 int p = n * (n - 1) / 2;
+
+int window_width = 200;
+int window_height = 200;
 
 Sphere sphere;
 GLuint matrixID_mv;
 GLuint matrixID_p;
 glm::mat4 proj, view;
+
+void print(glm::mat4 const & m)
+{
+	for (int i = 0; i < 4; ++i)
+	{
+		printf("    %8.2f%8.2f%8.2f%8.2f\n", m[i][0], m[i][1], m[i][2], m[i][3]);
+	}
+}
+void print(glm::vec4 const & m)
+{
+	printf("    %8.2f%8.2f%8.2f%8.2f\n", m[0], m[1], m[2], m[3]);
+}
+void print(Vec3 const & m)
+{
+	printf("    %8.2f%8.2f%8.2f\n", m.v[0], m.v[1], m.v[2]);
+}
 
 void gl_check_error()
 {
@@ -52,42 +76,213 @@ void gl_check_error()
 	}
 }
 
+double gravity_uniform_disc(double density, double p, double r)
+{
+	double k = 4.0 * r * p / (pow(r, 2.0) + pow(p, 2.0) + 2.0 * r * p);
+	double K = mymath::K(k);
+	double E = mymath::E(k);
+	double a = (1.0 - 0.5 * pow(k, 2.0)) * K - E;
+	return 4.0 * G * density * pow(p, 0.5) / k / pow(r, 0.5) * a;
+}
 
 class Frame
 {
 public:
-	Header header;
-	std::vector<Body> bodies;
-	std::vector<Pair> pairs;
+	void				load(std::string folder, unsigned int i)
+	{
+		char buffer[128];
+		sprintf_s(buffer, "frame_%08u.bin", i);
+		std::ifstream myFile(folder + "\\frames\\" + buffer, std::ios::in | std::ios::binary);
+
+		load(myFile);
+
+		myFile.close();
+	}
+	void				save(std::string folder, unsigned int i)
+	{
+		char buffer[128];
+		sprintf_s(buffer, "frame_%08u.bin", i);
+
+		std::string filename = folder + "\\frames\\" + buffer;
+
+		std::ofstream myFile(filename, std::ios::out | std::ios::binary);
+
+		save(myFile);
+
+		myFile.close();
+	}
+	void				load(std::ifstream & myFile)
+	{
+		myFile.read((char*)&header, sizeof(Header));
+
+		unsigned int s;
+
+		// bodies
+
+		myFile.read((char*)&s, sizeof(unsigned int));
+
+		bodies.resize(s);
+
+		for (int i = 0; i < s; ++i)
+		{
+			myFile.read((char*)&bodies[i], sizeof(Body));
+		}
+
+		// pairs
+
+		myFile.read((char*)&s, sizeof(unsigned int));
+
+		pairs.resize(s);
+
+		for (int i = 0; i < s; ++i)
+		{
+			myFile.read((char*)&pairs[i], sizeof(Pair));
+		}
+	}
+	void				save(std::ofstream & myFile)
+	{
+		myFile.write((char*)&header, sizeof(Header));
+
+		unsigned int s;
+
+		// bodies
+
+		s = bodies.size();
+
+		myFile.write((char*)&s, sizeof(unsigned int));
+
+		for (int i = 0; i < s; ++i)
+		{
+			myFile.write((char*)&bodies[i], sizeof(Body));
+		}
+
+		// pairs
+
+		s = pairs.size();
+
+		myFile.write((char*)&s, sizeof(unsigned int));
+
+		for (int i = 0; i < s; ++i)
+		{
+			myFile.write((char*)&pairs[i], sizeof(Pair));
+		}
+	}
+
+	double				x_max()
+	{
+		double x = 0;
+
+		for (int i = 0; i < bodies.size(); ++i)
+		{
+			x = std::max(x, bodies[i].pos.v[0]);
+		}
+
+		return x;
+	}
+	void				print()
+	{
+		for (int i = 0; i < n; ++i)
+		{
+			printf("%4i\n", i);
+			::print(bodies[i].pos);
+			::print(bodies[i].vel);
+			::print(bodies[i].acc);
+		}
+	}
+
+	Header				header;
+	std::vector<Body>	bodies;
+	std::vector<Pair>	pairs;
 };
 
 class History
 {
 public:
+	History(std::string f) : folder(f)
+	{}
+
 	void write()
 	{
 		std::ofstream myFile;
-		
-		myFile.open("P:/temp/nbody.bin", std::ios::out | std::ios::binary);
 
-		unsigned int l = frames.size();
+		myFile.open(folder + "\\" + "frame_times.bin", std::ios::out | std::ios::binary);
 
-		myFile.write((const char *)&l, sizeof(unsigned int));
+		write(myFile);
+
+		myFile.close();
+
+
+		/*for (int i = 0; i < frames.size(); ++i)
+		{
+			frames[i].save(folder, i);
+		}*/
+	}
+	void write(std::ofstream & myFile)
+	{
+		unsigned int l = frame_times.size();
+
+		myFile.write((char *)&l, sizeof(unsigned int));
+
+		myFile.write((char *)&frame_times[0], sizeof(double) * l);
 	}
 
 	void push(Header & header, std::shared_ptr<OCL::MemObj> memobj_bodies, std::shared_ptr<OCL::MemObj> memobj_pairs)
 	{
-		frames.emplace_back();
-		Frame & frame = frames.back();
+		//frames.emplace_back();
+		//Frame & frame = frames.back();
+		Frame frame;
 
 		frame.header = header;
 		frame.bodies.resize(n);
 		frame.pairs.resize(p);
 		memobj_bodies->EnqueueRead(&frame.bodies[0], n * sizeof(Body));
 		memobj_pairs->EnqueueRead(&frame.pairs[0], p * sizeof(Pair));
+
+		frame_times.push_back(header.t);
+
+		unsigned int i = frame_times.size() - 1;
+
+		frame.save(folder, i);
 	}
 
-	std::vector<Frame> frames;
+
+	void						load()
+	{
+		std::ifstream myFile(folder + "\\" + "frame_times.bin", std::ios::in | std::ios::binary);
+
+		unsigned int s;
+
+		myFile.read((char*)&s, sizeof(unsigned int));
+
+		frame_times.resize(s);
+
+		myFile.read((char *)&frame_times[0], sizeof(double) * s);
+
+		myFile.close();
+	}
+	std::shared_ptr<Frame>		get_frame(unsigned int i)
+	{
+		auto it = frames.find(i);
+		if (it != frames.end()) return it->second;
+
+		return load_frame(i);
+	}
+	std::shared_ptr<Frame>		load_frame(unsigned int i)
+	{
+		auto f = std::make_shared<Frame>();
+
+		f->load(folder, i);
+
+		return f;
+	}
+
+private:
+	std::map<unsigned int, std::shared_ptr<Frame>>	frames;
+
+public:
+	std::vector<double>		frame_times;
+
+	std::string				folder;
 };
 
 void generate_binary_system(
@@ -99,8 +294,8 @@ void generate_binary_system(
 	Body & b0 = bodies[0];
 	Body & b1 = bodies[1];
 
-	double & x0 = b0.pos.x;
-	double & x1 = b1.pos.x;
+	double & x0 = b0.pos.v[0];
+	double & x1 = b1.pos.v[0];
 
 	double & m0 = b0.mass;
 	double & m1 = b1.mass;
@@ -121,8 +316,8 @@ void generate_binary_system(
 
 	double f = 0.2;
 
-	b0.vel.y = f * sqrt(G * m1 * x0 / d / d);
-	b1.vel.y = -f * sqrt(G * m1 * -x1 / d / d);
+	b0.vel.v[1] = f * sqrt(G * m1 * x0 / d / d);
+	b1.vel.v[1] = -f * sqrt(G * m1 * -x1 / d / d);
 }
 
 void generate_pairs(
@@ -143,32 +338,42 @@ void generate_pairs(
 	}
 }
 
-void generate_bodies(
+void generate_disc(
 	std::vector<Body> & bodies,
 	std::vector<Pair> & pairs)
 {
 	int n = bodies.size();
+	
+	double x, y, r;
+
+	double body_mass = 1E8;
+	double body_radius = pow(3.0 * body_mass / 4.0 / pi / 5000.0, 1.0/3.0);
+
+	double radius = sqrt(10.0 * (double)n) * body_radius;
+
+	double density = body_mass * (double)n / (pi * pow(radius, 2.0));
 
 	for (int i = 0; i < n; ++i)
 	{
-		double scale = 500;
-		double x = (float)rand() / (float)RAND_MAX - 0.5;
-		double y = (float)rand() / (float)RAND_MAX - 0.5;
-		x = x * scale;
-		y = y * scale;
+		while (true)
+		{
+			x = (float)rand() / (float)RAND_MAX * 2.0 - 1.0;
+			y = (float)rand() / (float)RAND_MAX * 2.0 - 1.0;
+			x = x * radius;
+			y = y * radius;
+			r = sqrt(x*x + y*y);
 
-		double r = sqrt(x*x + y*y);
+			if (r < radius) break;
+		}
 
 		Body & b = bodies[i];
 
-		b.mass = 1E8;
-		b.radius = pow(3.0 * b.mass / 4.0 / pi / 5000.0, 1.0/3.0);
+		b.mass = body_mass;
+		b.radius = body_radius;
 
-		b.pos.x = x;
-		b.pos.y = y;
-
+		b.pos.v[0] = x;
+		b.pos.v[1] = y;
 	}
-
 
 	double X = 0;
 	double Y = 0;
@@ -177,9 +382,9 @@ void generate_bodies(
 	for (int i = 0; i < n; ++i)
 	{
 		Body & b = bodies[i];
-		X += b.mass * b.pos.x;
-		Y += b.mass * b.pos.y;
-		Z += b.mass * b.pos.z;
+		X += b.mass * b.pos.v[0];
+		Y += b.mass * b.pos.v[1];
+		Z += b.mass * b.pos.v[2];
 		M += b.mass;
 	}
 	X /= M;
@@ -190,22 +395,29 @@ void generate_bodies(
 	{
 		Body & b = bodies[i];
 
-		double x = b.pos.x - X;
-		double y = b.pos.y - Y;
+		double x = b.pos.v[0] - X;
+		double y = b.pos.v[1] - Y;
 
 		double r = sqrt(x*x + y*y);
 
 		if (r == 0)
 		{
-			b.vel.y = 0;
-			b.vel.x = 0;
+			b.vel.v[1] = 0;
+			b.vel.v[0] = 0;
 		}
 		else
 		{
-			double s = 0.6 * sqrt(G * M / r);
+			double k = 0.5;
 
-			b.vel.y = s * x / r;
-			b.vel.x = -s * y / r;
+			double acc1 = G * M / r / r;
+			double acc2 = k * gravity_uniform_disc(density, radius, r);
+
+			printf("grav acc %16e %16e\n", acc1, acc2);
+
+			double s = sqrt(acc2 * r);
+
+			b.vel.v[1] = s * x / r;
+			b.vel.v[0] = -s * y / r;
 		}
 	}
 
@@ -261,7 +473,7 @@ void draw_body(Body & b)
 {
 	/*glPushMatrix();
 	{
-		glTranslated(b.pos.x, b.pos.y, b.pos.z);
+		glTranslated(b.pos.v[0], b.pos.v[1], b.pos.v[2]);
 
 		double s = b.radius;
 		glScaled(s,s,s);
@@ -272,8 +484,15 @@ void draw_body(Body & b)
 	}
 	glPopMatrix();*/
 
+	glm::mat4 t = glm::translate(glm::vec3(b.pos.v[0], b.pos.v[1], b.pos.v[2]));
+	
+	glm::quat q(b.q0.v[0], b.q0.v[1], b.q0.v[2], b.q0.v[3]);
 
-	glm::mat4 model = glm::translate(glm::vec3(b.pos.x, b.pos.y, b.pos.z)) * glm::scale(glm::vec3(b.radius));
+	glm::mat4 r = glm::mat4_cast(q);
+
+	glm::mat4 s = glm::scale(glm::vec3(b.radius));
+
+	glm::mat4 model = t * r * s;
 
 	glm::mat4 mv = view * model;
 
@@ -281,14 +500,12 @@ void draw_body(Body & b)
 	gl_check_error();
 
 	sphere.drawTriangles(); gl_check_error();
-
-
 }
-void draw_frame(Frame & frame)
+void draw_frame(std::shared_ptr<Frame> & frame)
 {
-	for (int i = 0; i < frame.bodies.size(); ++i)
+	for (int i = 0; i < frame->bodies.size(); ++i)
 	{
-		draw_body(frame.bodies[i]);
+		draw_body(frame->bodies[i]);
 	}
 }
 
@@ -398,17 +615,7 @@ GLuint LoadShaders(const char * vertex_file_path, const char * fragment_file_pat
 	return ProgramID;
 }
 
-void print(glm::mat4 const & m)
-{
-	for (int i = 0; i < 4; ++i)
-	{
-		printf("    %8.2f%8.2f%8.2f%8.2f\n", m[i][0], m[i][1], m[i][2], m[i][3]);
-	}
-}
-void print(glm::vec4 const & m)
-{
-	printf("    %8.2f%8.2f%8.2f%8.2f\n", m[0], m[1], m[2], m[3]);
-}
+
 
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -429,9 +636,10 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	}
 
 	if (key == GLFW_KEY_P && action == GLFW_PRESS)
-	{
 		plot.pause = true;
-	}
+
+	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+		glfwSetWindowShouldClose(window, GLFW_TRUE);
 }
 void init_glew()
 {
@@ -448,6 +656,9 @@ void init_glew()
 }
 void plotfunc(History & hist)
 {
+	auto f = hist.get_frame(0);
+	eye_z = 1.5 * f->x_max();
+	
 	plot.t_factor = 1.0E1;
 	plot.t = 0;
 	plot.i = 0;
@@ -458,11 +669,10 @@ void plotfunc(History & hist)
 		exit(EXIT_FAILURE);
 	}
 
-	int width = 800;
-	int height = 800;
+	
 
 	//Create a window and create its OpenGL context
-	GLFWwindow * window = glfwCreateWindow(width, height, "Test Window", NULL, NULL);
+	GLFWwindow * window = glfwCreateWindow(window_width, window_height, "Test Window", NULL, NULL);
 	if (!window)
 	{
 		fprintf(stderr, "Failed to open GLFW window.\n");
@@ -486,7 +696,7 @@ void plotfunc(History & hist)
 
 	proj = glm::perspective<float>(
 		glm::radians(90.0f),
-		(float)width / (float)height,
+		(float)window_width / (float)window_height,
 		perspective_near,
 		perspective_far);
 
@@ -520,6 +730,8 @@ void plotfunc(History & hist)
 
 	double t0 = glfwGetTime();
 
+	glEnable(GL_DEPTH_TEST);
+
 	do
 	{
 		double t1 = glfwGetTime();
@@ -533,29 +745,11 @@ void plotfunc(History & hist)
 		glUniformMatrix4fv(matrixID_p, 1, GL_FALSE, &proj[0][0]);
 		gl_check_error();
 
-		Frame & f = hist.frames[plot.i];
+		f = hist.get_frame(plot.i);
 
 
 		draw_frame(f);
 		
-
-		//sphere.drawTriangles();
-
-		//glPushMatrix();
-		{
-			//glRotatef(t1 * pi, 1,0,0);
-
-			//sphere.drawTriangles(); gl_check_error();
-			
-			//rect.drawTriangles();
-			
-			
-			
-			//draw_cube();
-		}
-		//glPopMatrix();
-
-
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
@@ -564,28 +758,32 @@ void plotfunc(History & hist)
 		{
 			plot.t += dt * plot.t_factor;
 
-			while (f.header.t < plot.t)
+			while (hist.frame_times[plot.i] < plot.t)
 			{
 				plot.i += 1;
 
-				if (plot.i >= hist.frames.size()) {
+				if (plot.i >= hist.frame_times.size()) {
 					plot.i = 0;
 					plot.t = 0;
 				}
-
-				f = hist.frames[plot.i];
 			}
+
+			f = hist.get_frame(plot.i);
 		}
 
 
-		printf("t_sim=%8f i=%6i t=%16f dt=%16f tf=%8.2e\n", plot.t, plot.i, f.header.t, f.header.dt, plot.t_factor);
+		printf("t_sim=%8f i=%6i t=%16f dt=%16f tf=%8.2e\n", plot.t, plot.i, f->header.t, f->header.dt, plot.t_factor);
 
 	} while (!glfwWindowShouldClose(window));
 
-	
+	glfwDestroyWindow(window);
 }
 
-
+inline bool file_exists(const std::string& name)
+{
+	std::ifstream f(name.c_str());
+	return f.good();
+}
 
 unsigned int next_power_of_two(unsigned int x)
 {
@@ -597,11 +795,82 @@ unsigned int next_power_of_two(unsigned int x)
 	return ret;
 }
 
-
-
-int _tmain(int argc, _TCHAR* argv[])
+class OCL_manager
 {
-	unsigned int file_size = m * (n * sizeof(Body) + p * sizeof(Pair));
+public:
+	void	init(std::vector<Body> & bodies, std::vector<Pair> & pairs, Header & header)
+	{
+		ocl = std::make_shared<OCL::Manager>();
+		ocl->init();
+
+		char * files[2] = { "kernel.cl", "kernel.h" };
+
+		auto program = ocl->create_program(files, 1, "");
+
+		kernel_calc_acc = program->create_kernel("calc_acc");
+		kernel_step = program->create_kernel("step_pos");
+		kernel_dt_min = program->create_kernel("k_min");
+		kernel_dt_store = program->create_kernel("store_dt");
+
+		memobj_bodies = ocl->create_buffer(CL_MEM_READ_WRITE, bodies.size() * sizeof(Body));
+		memobj_bodies->EnqueueWrite(&bodies[0], bodies.size() * sizeof(Body));
+
+		memobj_pairs = ocl->create_buffer(CL_MEM_READ_WRITE, pairs.size() * sizeof(Pair));
+		memobj_pairs->EnqueueWrite(&pairs[0], pairs.size() * sizeof(Pair));
+
+		memobj_header = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(Header));
+		memobj_header->EnqueueWrite(&header, sizeof(Header));
+
+		unsigned int counter = 0;
+		auto memobj_counter = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
+		memobj_counter->EnqueueWrite(&counter, sizeof(unsigned int));
+
+		auto memobj_dt_input = ocl->create_buffer(CL_MEM_READ_WRITE, p * sizeof(double));
+
+		auto memobj_dt_partial = ocl->create_buffer(CL_MEM_READ_WRITE, p * sizeof(double));
+
+		auto memobj_dt_len = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
+		memobj_dt_len->EnqueueWrite(&p, sizeof(unsigned int));
+
+		kernel_calc_acc->set_arg(memobj_header, 0);
+		kernel_calc_acc->set_arg(memobj_bodies, 1);
+		kernel_calc_acc->set_arg(memobj_pairs, 2);
+		kernel_calc_acc->set_arg(memobj_dt_input, 3);
+		kernel_calc_acc->set_arg(memobj_counter, 4);
+
+		kernel_step->set_arg(memobj_header, 0);
+		kernel_step->set_arg(memobj_bodies, 1);
+		kernel_step->set_arg(memobj_pairs, 2);
+		kernel_step->set_arg(memobj_counter, 3);
+
+		kernel_dt_min->set_arg(memobj_dt_input, 0);
+		kernel_dt_min->set_arg(memobj_dt_len, 1);
+		kernel_dt_min->set_arg(memobj_dt_partial, 2);
+		kernel_dt_min->set_arg(3, 1024 * sizeof(double));
+
+		kernel_dt_store->set_arg(memobj_dt_partial, 0);
+		kernel_dt_store->set_arg(memobj_header, 1);
+	}
+	void	shutdown()
+	{
+		ocl->shutdown();
+	}
+
+	std::shared_ptr<OCL::Manager>	ocl;
+
+	std::shared_ptr<OCL::MemObj>	memobj_bodies;
+	std::shared_ptr<OCL::MemObj>	memobj_pairs;
+	std::shared_ptr<OCL::MemObj>	memobj_header;
+
+	std::shared_ptr<OCL::Kernel>	kernel_calc_acc;
+	std::shared_ptr<OCL::Kernel>	kernel_step;
+	std::shared_ptr<OCL::Kernel>	kernel_dt_min;
+	std::shared_ptr<OCL::Kernel>	kernel_dt_store;
+};
+
+int simulate()
+{
+	unsigned int file_size = m * (n * sizeof(Body)+p * sizeof(Pair));
 
 	printf("file size = %u MB\n", file_size / 1024 / 1024);
 
@@ -609,139 +878,140 @@ int _tmain(int argc, _TCHAR* argv[])
 
 	double * dt_partial = new double[p];
 
-	History hist;
-
-	std::vector<Body> bodies(n);
-	std::vector<Pair> pairs(n*(n-1)/2);
-
-	//generate_binary_system(bodies, pairs);
-	generate_bodies(bodies, pairs);
+	History hist("C:\\test");
 	
-	generate_pairs(bodies, pairs);
+	std::vector<Body> bodies;
+	std::vector<Pair> pairs;
 
 	Header header;
 	header.bodies_size = n;
 	header.t = 0;
 	header.dt = 0;
 
-	auto ocl = std::make_shared<OCL::Manager>();
-	ocl->init();
+	if (file_exists(hist.folder + "\\frame_times.bin"))
+	{
+		hist.load();
 
-	char * files[2] = { "kernel.cl", "kernel.h" };
+		unsigned int i = hist.frame_times.size() - 1;
 
-	auto program = ocl->create_program(files, 1, "");
+		auto f = hist.get_frame(i);
 
-	auto kernel_calc_acc = program->create_kernel("calc_acc");
-	auto kernel_step = program->create_kernel("step_pos");
-	auto kernel_dt_min = program->create_kernel("k_min");
-	auto kernel_dt_store = program->create_kernel("store_dt");
+		header = f->header;
+		bodies = f->bodies;
+		pairs = f->pairs;
+	}
+	else
+	{
+		bodies.resize(n);
+		pairs.resize(p);
 
-	auto memobj_bodies = ocl->create_buffer(CL_MEM_READ_WRITE, bodies.size() * sizeof(Body));
-	memobj_bodies->EnqueueWrite(&bodies[0], bodies.size() * sizeof(Body));
+		//generate_binary_system(bodies, pairs);
+		generate_disc(bodies, pairs);
 
-	auto memobj_pairs = ocl->create_buffer(CL_MEM_READ_WRITE, pairs.size() * sizeof(Pair));
-	memobj_pairs->EnqueueWrite(&pairs[0], pairs.size() * sizeof(Pair));
+		generate_pairs(bodies, pairs);
+	}
 
-	auto memobj_header = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(Header));
-	memobj_header->EnqueueWrite(&header, sizeof(Header));
-
-	unsigned int counter = 0;
-	auto memobj_counter = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
-	memobj_counter->EnqueueWrite(&counter, sizeof(unsigned int));
-
-	auto memobj_dt_input = ocl->create_buffer(CL_MEM_READ_WRITE, p * sizeof(double));
-
-	auto memobj_dt_partial = ocl->create_buffer(CL_MEM_READ_WRITE, p * sizeof(double));
-
-	auto memobj_dt_len = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
-	memobj_dt_len->EnqueueWrite(&p, sizeof(unsigned int));
-
-	kernel_calc_acc->set_arg(memobj_header, 0);
-	kernel_calc_acc->set_arg(memobj_bodies, 1);
-	kernel_calc_acc->set_arg(memobj_pairs, 2);
-	kernel_calc_acc->set_arg(memobj_dt_input, 3);
-	kernel_calc_acc->set_arg(memobj_counter, 4);
-
-	kernel_step->set_arg(memobj_header, 0);
-	kernel_step->set_arg(memobj_bodies, 1);
-	kernel_step->set_arg(memobj_pairs, 2);
-	kernel_step->set_arg(memobj_counter, 3);
-
-	/*
-	__global const double * input,
-		__global unsigned int * len,
-		__global double * partial,
-		__local double * loc)
-		*/
-	kernel_dt_min->set_arg(memobj_dt_input, 0);
-	kernel_dt_min->set_arg(memobj_dt_len, 1);
-	kernel_dt_min->set_arg(memobj_dt_partial, 2);
-	kernel_dt_min->set_arg(3, 1024 * sizeof(double));
-
-	kernel_dt_store->set_arg(memobj_dt_partial, 0);
-	kernel_dt_store->set_arg(memobj_header, 1);
+	
+	OCL_manager om;
+	om.init(bodies, pairs, header);
+	
 
 	std::cout << "kernel start" << std::endl;
 
-	hist.push(header, memobj_bodies, memobj_pairs);
+	// if this is a new simulation, save the zero frame
+	if (hist.frame_times.empty())
+	{
+		hist.push(header, om.memobj_bodies, om.memobj_pairs);
+	}
+	else
+	{
+		header.t = hist.frame_times.back();
+	}
 
-	
 
 	for (int i = 0; i < m; ++i)
 	{
 		double t0 = header.t;
 
-		kernel_calc_acc->enqueue_ND_range_kernel(next_power_of_two(p), 1);
-		kernel_dt_min->enqueue_ND_range_kernel(next_power_of_two(p), std::min<unsigned int>(next_power_of_two(p), 1024));
+		om.kernel_calc_acc->enqueue_ND_range_kernel(next_power_of_two(p), 1);
+		om.kernel_dt_min->enqueue_ND_range_kernel(next_power_of_two(p), std::min<unsigned int>(next_power_of_two(p), 1024));
 
-		kernel_dt_store->enqueue_ND_range_kernel(1, 1);
+		om.kernel_dt_store->enqueue_ND_range_kernel(1, 1);
 
-		kernel_step->enqueue_ND_range_kernel(next_power_of_two(n), 1);
+		om.kernel_step->enqueue_ND_range_kernel(next_power_of_two(n), 1);
 
 
-		memobj_header->EnqueueRead(&header, sizeof(Header));
+		om.memobj_header->EnqueueRead(&header, sizeof(Header));
 
 		header.t = t0 + header.dt;
 
-		if (i % (m / 100) == 0) printf("%8i t=%16f dt=%16f count_pen=%8i\n", i, header.t, header.dt, header.count_pen);
+		if (i % (m / 10) == 0) printf("%8i t=%16f dt=%16f count_pen=%8i\n", i, header.t, header.dt, header.count_pen);
 
-		
+
 
 		// save
-		hist.push(header, memobj_bodies, memobj_pairs);
+		hist.push(header, om.memobj_bodies, om.memobj_pairs);
 	}
 
-	hist.write();
+	
 
 	std::cout << "read" << std::endl;
 
-	memobj_bodies->EnqueueRead(&bodies[0], n * sizeof(Body));
+	om.memobj_bodies->EnqueueRead(&bodies[0], n * sizeof(Body));
 
-	for (int i = 0; i < n; ++i)
-	{
-		printf("%4i %16f %16f %16f\n     %16f %16f %16f\n     %16f %16f %16f\n", i, 
-			bodies[i].pos.x, 
-			bodies[i].pos.y,
-			bodies[i].pos.z,
-			bodies[i].vel.x,
-			bodies[i].vel.y,
-			bodies[i].vel.z,
-			bodies[i].acc.x,
-			bodies[i].acc.y,
-			bodies[i].acc.z
-			);
-	}
+	
+
+	hist.write();
 
 	std::cout << "done" << std::endl;
 
-	ocl->shutdown();
-
-	plotfunc(hist);
+	om.shutdown();
 
 	getchar();
 
 	return 0;
 }
+
+int render()
+{
+	History hist("C:\\test");
+	hist.load();
+
+	plotfunc(hist);
+
+	return 0;
+}
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	while (true){
+
+		std::cout << "enter command" << std::endl;
+		std::string s;
+		std::getline(std::cin, s);
+
+		std::smatch sm1;
+
+		std::regex e1("s (\\d+)");
+
+		if (std::regex_match(s, sm1, e1))
+		{
+			m = stoi(sm1[1]);
+
+			simulate();
+		}
+		else if (s.compare("r") == 0)
+		{
+			render();
+		}
+		else{
+			break;
+		}
+	}
+	return 0;
+}
+
+
 
 
 

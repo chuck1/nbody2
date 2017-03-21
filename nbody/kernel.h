@@ -22,14 +22,28 @@ struct Header
 };
 struct Vec3
 {
-	double x, y, z;
+	double v[3];
 };
+struct Vec4
+{
+	double v[4];
+};
+struct Mat4
+{
+	double v[4][4];
+};
+
 
 struct Body
 {
 	struct Vec3 pos;
 	struct Vec3 vel;
 	struct Vec3 acc;
+
+	struct Vec4 q0;
+	struct Vec4 q1;
+	struct Vec4 q2;
+
 	double radius;
 	double mass;
 };

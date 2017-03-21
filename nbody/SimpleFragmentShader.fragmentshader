@@ -2,12 +2,20 @@
 
 out vec4 color;
 
+in vec4 p0;
 in vec4 p;
 in vec3 n;
 
 void main()
 {
-	vec4 mat_diffuse = vec4(0,1,1,0);
+	vec4 mat_diffuse;
+
+	float a = p0.x * p0.y * p0.z;
+
+	if(a > 0)
+		mat_diffuse = vec4(0,1,1,0);
+	else if(a < 0)
+		mat_diffuse = vec4(1,1,1,0);
 
 	// directional light
 	vec3 L = normalize(vec3(1,1,1));
@@ -16,6 +24,6 @@ void main()
 	
 	color = diffuse;
 
-	color = vec4(n * 0.5 + 0.5, 0);
+	//color = vec4(n * 0.5 + 0.5, 0);
 }
 

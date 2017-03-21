@@ -83,6 +83,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="kernel.h" />
+    <ClInclude Include="mymath.h" />
     <ClInclude Include="OCL.h" />
     <ClInclude Include="RenderGeometry.h" />
     <ClInclude Include="stdafx.h" />
