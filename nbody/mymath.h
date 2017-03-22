@@ -2,6 +2,8 @@
 #include <exception>
 #include <cmath>
 
+#define M_PI (3.1415926535897)
+
 namespace mymath
 {
 
@@ -62,5 +64,15 @@ namespace mymath
 		ret *= pi / 2.0;
 
 		return ret;
+	}
+
+	double			volume_sphere_sphere_intersection(double d, double r0, double r1)
+	{
+		double p = r0 + r1 - d;
+		double h0 = (r1 - r0 + d) * p / 2.0 / d;
+		double h1 = (r0 - r1 + d) * p / 2.0 / d;
+		double V0 = M_PI / 3.0 * pow(h0, 2.0) * (3.0 * r0 - h0);
+		double V1 = M_PI / 3.0 * pow(h1, 2.0) * (3.0 * r1 - h1);
+		return V0 + V1;
 	}
 }

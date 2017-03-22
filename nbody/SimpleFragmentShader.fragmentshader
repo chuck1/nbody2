@@ -6,6 +6,12 @@ in vec4 p0;
 in vec4 p;
 in vec3 n;
 
+int sign(float x)
+{
+	if(x > 0) return 1;
+	return 0;
+}
+
 void main()
 {
 	vec4 mat_diffuse;
@@ -16,6 +22,10 @@ void main()
 		mat_diffuse = vec4(0,1,1,0);
 	else if(a < 0)
 		mat_diffuse = vec4(1,1,1,0);
+
+	mat_diffuse = vec4(sign(p0.x),sign(p0.y),sign(p0.z),0);
+
+
 
 	// directional light
 	vec3 L = normalize(vec3(1,1,1));

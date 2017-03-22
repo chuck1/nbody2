@@ -231,10 +231,9 @@ namespace OCL
 
 				printf("Build failed; error=%d, status=%d, programLog:nn%s", ret, status, programLog);
 				free(programLog);
-				getchar(); exit(0);
+				
+				throw std::exception();
 			}
-
-			
 
 			printf("build successful\n");
 

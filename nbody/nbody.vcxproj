@@ -82,6 +82,8 @@
     <Text Include="ReadMe.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Frame.h" />
+    <ClInclude Include="History.h" />
     <ClInclude Include="kernel.h" />
     <ClInclude Include="mymath.h" />
     <ClInclude Include="OCL.h" />
