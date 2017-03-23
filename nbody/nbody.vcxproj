@@ -52,13 +52,13 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>C:\Users\crymal\Documents\glm-0.9.8.4;C:\opengl-wrappers\glfw\glfw-3.2.1.bin.WIN64\include;C:\opengl-wrappers\glew\glew-2.0.0\include;$(CUDA_PATH)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\local\boost_1_63_0;C:\Users\crymal\Documents\glm-0.9.8.4;C:\opengl-wrappers\glfw\glfw-3.2.1.bin.WIN64\include;C:\opengl-wrappers\glew\glew-2.0.0\include;$(CUDA_PATH)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>opengl32.lib;glu32.lib;glew32.lib;glfw3.lib;OpenCL.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\opengl-wrappers\glfw-3.2.1.bin.WIN32\glfw-3.2.1.bin.WIN32\lib-vc2013;C:\opengl-wrappers\glew\glew-2.0.0\lib\Release\Win32;$(CUDA_PATH)\lib\Win32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>opengl32.lib;glu32.lib;glew32.lib;glfw3.lib;OpenCL.lib;libboost_system-vc120-mt-gd-1_63.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\opengl-wrappers\glfw-3.2.1.bin.WIN32\glfw-3.2.1.bin.WIN32\lib-vc2013;C:\opengl-wrappers\glew\glew-2.0.0\lib\Release\Win32;C:\local\boost_1_63_0\lib32-msvc-12.0;$(CUDA_PATH)\lib\Win32;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -88,6 +88,7 @@
     <ClInclude Include="mymath.h" />
     <ClInclude Include="OCL.h" />
     <ClInclude Include="RenderGeometry.h" />
+    <ClInclude Include="Socket.h" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
   </ItemGroup>

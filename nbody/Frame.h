@@ -45,7 +45,7 @@ public:
 
 		bodies.resize(s);
 
-		for (int i = 0; i < s; ++i)
+		for (unsigned int i = 0; i < s; ++i)
 		{
 			myFile.read((char*)&bodies[i], sizeof(Body));
 		}
@@ -56,7 +56,7 @@ public:
 
 		pairs.resize(s);
 
-		for (int i = 0; i < s; ++i)
+		for (unsigned int i = 0; i < s; ++i)
 		{
 			myFile.read((char*)&pairs[i], sizeof(Pair));
 		}
@@ -73,7 +73,7 @@ public:
 
 		myFile.write((char*)&s, sizeof(unsigned int));
 
-		for (int i = 0; i < s; ++i)
+		for (unsigned int i = 0; i < s; ++i)
 		{
 			myFile.write((char*)&bodies[i], sizeof(Body));
 		}
@@ -84,7 +84,7 @@ public:
 
 		myFile.write((char*)&s, sizeof(unsigned int));
 
-		for (int i = 0; i < s; ++i)
+		for (unsigned int i = 0; i < s; ++i)
 		{
 			myFile.write((char*)&pairs[i], sizeof(Pair));
 		}
@@ -94,7 +94,7 @@ public:
 	{
 		double x = 0;
 
-		for (int i = 0; i < bodies.size(); ++i)
+		for (unsigned int i = 0; i < bodies.size(); ++i)
 		{
 			x = std::max(x, bodies[i].pos.v[0]);
 		}
@@ -104,7 +104,7 @@ public:
 	void				print()
 	{
 		printf("bodies\n");
-		for (int i = 0; i < bodies.size(); ++i)
+		for (unsigned int i = 0; i < bodies.size(); ++i)
 		{
 			printf("%4i\n", i);
 			//::print(bodies[i].pos);
@@ -113,7 +113,7 @@ public:
 		}
 
 		printf("pairs\n");
-		for (int i = 0; i < pairs.size(); ++i)
+		for (unsigned int i = 0; i < pairs.size(); ++i)
 		{
 			printf("  d=%8f s=%8f\n", pairs[i].d, pairs[i].s);
 		}

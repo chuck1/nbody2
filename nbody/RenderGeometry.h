@@ -134,12 +134,12 @@ public:
 		{
 			for (int j = 0; j < n; ++j)
 			{
-				double a = (float(i + 1) / (float)m - 0.5) * pi;
-				double b = (float)j / (float)n * 2.0 * pi;
+				float a = (float(i + 1) / (float)m - 0.5) * pi;
+				float b = (float)j / (float)n * 2.0 * pi;
 
-				double x = cos(b) * cos(a);
-				double y = sin(b) * cos(a);
-				double z = sin(a);
+				float x = cos(b) * cos(a);
+				float y = sin(b) * cos(a);
+				float z = sin(a);
 
 				GLfloat * p0 = p + (i * n + j) * 4;
 				GLfloat * n0 = normal + (i * n + j) * 3;

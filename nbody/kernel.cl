@@ -1,7 +1,8 @@
 
 #include "kernel.h"
 
-#define TIME_STEP_FACTOR (0.0001)
+#define TIME_STEP_FACTOR_PROXIMITY (0.001)
+#define TIME_STEP_FACTOR_ACC (0.1)
 
 struct Vec3 *	vector_cross_ppp(struct Vec3 * ret, struct Vec3 * a, struct Vec3 * b)
 {
@@ -123,7 +124,13 @@ struct Quat *	cast_vec3_to_quat_pp( struct Quat * ret, struct Vec3 * a)
 	return ret;
 }
 
-double			vector_length(struct Vec3 * v)
+double			vector_length_p(struct Vec3 * v)
+{
+	double l = 0;
+	for (int i = 0; i < 3; ++i) l += v->v[i] * v->v[i];
+	return sqrt(l);
+}
+double			vector_length_g(__global struct Vec3 * v)
 {
 	double l = 0;
 	for (int i = 0; i < 3; ++i) l += v->v[i] * v->v[i];
@@ -361,6 +368,124 @@ __kernel void store_dt(
 	}
 }
 
+
+void calc_acc_sub(__global struct Pair * p, __global struct Header * header, __global struct Body * bodies, __global double * dt_input, int ind)
+{
+	struct Vec3 temp0;
+
+	double G = 6.67408E-11;
+
+	double k_drag = 1.0E+0;
+	double k_repulsion = 0.01;
+
+	__global struct Body * b0 = &bodies[p->i];
+	__global struct Body * b1 = &bodies[p->j];
+
+	struct Vec3 R;
+
+	vector_sub_pgg(&R, &b1->pos, &b0->pos);
+
+	double r = vector_length_p(&R);
+
+	struct Vec3 v;
+
+	vector_sub_pgg(&v, &b1->vel, &b0->vel);
+
+	double s = vector_length_p(&v);
+
+	// save
+	p->d = r;
+	p->s = s;
+
+	// calc dt
+	if (s == 0)
+	{
+		dt_input[ind] = 1.0;
+	}
+	else
+	{
+		dt_input[ind] = min(TIME_STEP_FACTOR_PROXIMITY * r / s, 100.0);
+	}
+
+	double m0 = b0->mass;
+	double m1 = b1->mass;
+
+	double F = G * m0 * m1 / r / r;
+
+	// positive pen is penetration
+	// negative pen is no penetration
+
+	double pen = b0->radius + b1->radius - p->d;
+
+	if (pen > 0)
+	{
+		atomic_inc(&header->count_pen);
+
+		// volume and mass of interseting region
+		double V = volume_sphere_sphere_intersection(p->d, b0->radius, b1->radius);
+		double m = V * (b0->density + b1->density);
+
+		// point at which drag force will act
+		struct Vec3 o;
+		vector_add_ppg(&o, vector_mul_pp(&temp0, &R, (b0->radius - pen / 2.0) / r), &b0->pos);
+
+		// drag force
+		struct Vec3 F_drag0, F_drag1;
+
+		struct Vec3 R0, R1;
+
+		vector_sub_ppg(&R0, &o, &b0->pos);
+		vector_sub_ppg(&R1, &o, &b1->pos);
+
+		struct Vec3 vo0, vo1, vo_rel;
+
+		vector_add_ppg(&vo0, vector_cross_pgp(&temp0, &b0->w, &R0), &b0->vel);
+		vector_add_ppg(&vo1, vector_cross_pgp(&temp0, &b1->w, &R1), &b1->vel);
+
+		vector_sub_ppp(&vo_rel, &vo0, &vo1);
+
+
+
+		vector_mul_pp(&F_drag0, &vo_rel, -k_drag * m);
+		vector_mul_pp(&F_drag1, &vo_rel, +k_drag * m);
+
+		// torque
+		struct Vec3 T0, T1;
+
+		vector_cross_ppp(&T0, &R0, &F_drag0);
+		vector_cross_ppp(&T1, &R1, &F_drag1);
+
+
+		// repulsion
+
+		if (1) {
+			F -= k_repulsion * m;
+		}
+
+		vector_add_self_gp(&b0->force, &F_drag0);
+		vector_add_self_gp(&b1->force, &F_drag1);
+
+		vector_add_self_gp(&b0->torque, &T0);
+		vector_add_self_gp(&b1->torque, &T1);
+	}
+
+	// gravity and repulsion
+	vector_add_self_gp(&b0->force, vector_mul_pp(&temp0, &R, F / r));
+	vector_sub_self_gp(&b1->force, vector_mul_pp(&temp0, &R, F / r));
+
+	p->F = F;
+}
+
+int get_pair(__global struct Pair * pairs, int p, int i, int j)
+{
+	for (int k = 0; k < p; ++k)
+	{
+		if ((pairs[k].i == i) && (pairs[k].j == j)) return k;
+		if ((pairs[k].i == j) && (pairs[k].j == i)) return k;
+	}
+	return -1;
+}
+
 __kernel void calc_acc(
 	__global struct Header * header,
 	__global struct Body * bodies,
@@ -368,9 +493,12 @@ __kernel void calc_acc(
 	__global double * dt_input,
 	volatile __global unsigned int * counter)
 {
-	struct Vec3 temp0;
+	/* MUST USE ONLY ONE WORK GROUP
+	*/
 
-	if (get_global_id(0) == 0) {
+	if (get_global_id(0) != get_local_id(0)) return;
+
+	if (get_local_id(0) == 0) {
 		header->dt = 0;
 		header->count_pen = 0;
 		*counter = 0;
@@ -379,121 +507,83 @@ __kernel void calc_acc(
 	barrier(CLK_GLOBAL_MEM_FENCE);
 
 	int n = header->bodies_size;
-	
-	unsigned int len = n * (n - 1) / 2;
+	int p = n * (n - 1) / 2;
 
-	double G = 6.67408E-11;
+	/*unsigned int len = n * (n - 1) / 2;
 
-	double k_drag = 1.0E-2;
-	
 	while (true)
 	{
 		unsigned int ind = atomic_inc(counter);
 		if (ind > (len - 1)) break;
 
-		__global struct Pair * p = &pairs[ind];
+		calc_acc_sub(&pairs[ind], header, bodies, dt_input, ind);
+	}*/
 
-		int i = p->i;
-		int j = p->j;
+	/* NEW METHOD
+	diagonals of the body-body table
+	*/
+	
 
-		__global struct Body * b0 = &bodies[i];
-		__global struct Body * b1 = &bodies[j];
+	int local_id = get_local_id(0);
+	int local_size = get_local_size(0);
 
-		struct Vec3 R;
-		
-		vector_sub_pgg(&R, &b1->pos, &b0->pos);
-
-		double r = vector_length(&R);
-		
-		struct Vec3 v;
-		
-		vector_sub_pgg(&v, &b1->vel, &b0->vel);
-		
-		double s = vector_length(&v);
-
-		// save
-		p->d = r;
-		p->s = s;
-
-		// calc dt
-		if (s == 0)
+	for (int i = 0; i < (n - 1); i += local_size)
+	{
+		for (int j = 1; j < n; ++j)
 		{
-			dt_input[ind] = 1.0;
+			barrier(CLK_GLOBAL_MEM_FENCE);
+
+			int n0 = min(local_size, n - j);
+
+			if (local_id > (n0 - 1)) continue;
+
+			int i0 = i + local_id;
+			int j0 = j + local_id;
+
+			int k = get_pair(pairs, p, i0, j0);
+
+			calc_acc_sub(&pairs[k], header, bodies, dt_input, k);
+		}
+	}
+}
+
+__kernel void dt_calc(
+	__global struct Header * header,
+	__global struct Body * bodies,
+	__global struct Pair * pairs,
+	__global double * dt_input,
+	volatile __global unsigned int * counter)
+{
+	if (get_global_id(0) == 0) {
+		*counter = 0;
+	}
+
+	barrier(CLK_GLOBAL_MEM_FENCE);
+
+	int n = header->bodies_size;
+	int p = n * (n - 1) / 2;
+
+	while (true)
+	{
+		unsigned int ind = atomic_inc(counter);
+		if (ind > (n - 1)) break;
+
+		__global struct Body * b = &bodies[ind];
+
+		double f = vector_length_g(&b->force);
+		double a = f / b->mass;
+		double v = vector_length_g(&b->vel);
+		
+		if (a == 0)
+		{
+			dt_input[p + ind] = 0.0;
 		}
 		else
 		{
-			dt_input[ind] = min(TIME_STEP_FACTOR * r / s, 100.0);
+			dt_input[p + ind] = TIME_STEP_FACTOR_ACC * v / a;
+			
+			dt_input[p + ind] = max(dt_input[p + ind], 1.0E-5);
 		}
-
-		double m0 = b0->mass;
-		double m1 = b1->mass;
-
-		double F = G * m0 * m1 / r / r;
-		
-		// positive pen is penetration
-		// negative pen is no penetration
-
-		double pen = b0->radius + b1->radius - p->d;
-
-		if (pen > 0)
-		{
-			atomic_inc(&header->count_pen);
-			
-			// volume and mass of interseting region
-			double V = volume_sphere_sphere_intersection(p->d, b0->radius, b1->radius);
-			double m = V * (b0->density + b1->density);
-
-			// point at which drag force will act
-			struct Vec3 o;
-			vector_add_ppg(&o, vector_mul_pp(&temp0, &R, (b0->radius - pen / 2.0) / r), &b0->pos);
-
-			// drag force
-			struct Vec3 F_drag0, F_drag1;
-
-			struct Vec3 R0, R1;
-
-			vector_sub_ppg(&R0, &o, &b0->pos);
-			vector_sub_ppg(&R1, &o, &b1->pos);
-
-			struct Vec3 vo0, vo1, vo_rel;
-
-			vector_add_ppg(&vo0, vector_cross_pgp(&temp0, &b0->w, &R0), &b0->vel);
-			vector_add_ppg(&vo1, vector_cross_pgp(&temp0, &b1->w, &R1), &b1->vel);
-
-			vector_sub_ppp(&vo_rel, &vo0, &vo1);
-
-			
-
-			vector_mul_pp(&F_drag0, &vo_rel, -k_drag * m);
-			vector_mul_pp(&F_drag1, &vo_rel, +k_drag * m);
-
-			// torque
-			struct Vec3 T0, T1;
-			
-			vector_cross_ppp(&T0, vector_sub_ppg(&temp0, &o, &b0->pos), &F_drag0);
-			vector_cross_ppp(&T1, vector_sub_ppg(&temp0, &o, &b1->pos), &F_drag1);
-
-			 
-			// repulsion
-
-			double k = 0.01;
-			
-			if (1) {
-				F -= k * m;
-			}
-
-			vector_add_self_gp(&b0->force, &F_drag0);
-			vector_add_self_gp(&b1->force, &F_drag1);
-
-			vector_add_self_gp(&b0->torque, &T0);
-			vector_add_self_gp(&b1->torque, &T1);
-		}
-
-		// gravity and repulsion
-		vector_add_self_gp(&b0->force, vector_mul_pp(&temp0, &R, F / r));
-		vector_sub_self_gp(&b1->force, vector_mul_pp(&temp0, &R, F / r));
-
-		p->F = F;
 	}
 }
 
@@ -503,17 +593,21 @@ __kernel void step_pos(
 	__global struct Pair * pairs,
 	volatile __global unsigned int * counter)
 {
-	if (get_global_id(0) == 0) *counter = 0;
-	barrier(CLK_GLOBAL_MEM_FENCE);
+	//if (get_global_id(0) == 0) *counter = 0;
+	//barrier(CLK_GLOBAL_MEM_FENCE);
 
 	int len = header->bodies_size;
 
 	double dt = header->dt;
 
-	while (true)
+	int ind = get_global_id(0);
+
+	if (ind > (len - 1)) return;
+
+	//while (true)
 	{
-		unsigned int ind = atomic_inc(counter);
-		if (ind > (len - 1)) break;
+		//unsigned int ind = atomic_inc(counter);
+		//if (ind > (len - 1)) break;
 
 		int i = ind;
 
@@ -526,7 +620,7 @@ __kernel void step_pos(
 
 		vector_mul_gg(&b->acc, &b->force, 1.0 / b->mass);
 
-		vector_add_self_gp(&b->vel, vector_mul_pg(&temp0, &b->acc, dt));
+		vector_add_self_gp(&b->vel, vector_mul_pp(&temp0, &a0, dt));
 
 		vector_add_self_gp(&b->pos, vector_add_ppp(&temp0, vector_mul_pp(&temp1, &v0, dt), vector_mul_pp(&temp2, &a0, dt * dt / 2.0)));
 
@@ -579,6 +673,12 @@ __kernel void step_pos(
 		b->torque.v[0] = 0;
 		b->torque.v[1] = 0;
 		b->torque.v[2] = 0;
+	}
+
+
+	if (get_global_id(0) == 0)
+	{
+		header->t += header->dt;
 	}
 }
 

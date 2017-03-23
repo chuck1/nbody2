@@ -35,7 +35,7 @@ public:
 		myFile.write((char *)&frame_times[0], sizeof(double)* l);
 	}
 
-	void						push(Header & header, std::shared_ptr<OCL::MemObj> memobj_bodies, std::shared_ptr<OCL::MemObj> memobj_pairs, int n)
+	void						push(std::shared_ptr<OCL::MemObj> memobj_header, std::shared_ptr<OCL::MemObj> memobj_bodies, std::shared_ptr<OCL::MemObj> memobj_pairs, int n)
 	{
 		//frames.emplace_back();
 		//Frame & frame = frames.back();
@@ -43,13 +43,15 @@ public:
 
 		int p = n*(n - 1) / 2;
 
-		frame.header = header;
+		//frame.header = header;
 		frame.bodies.resize(n);
 		frame.pairs.resize(p);
+
 		memobj_bodies->EnqueueRead(&frame.bodies[0], n * sizeof(Body));
 		memobj_pairs->EnqueueRead(&frame.pairs[0], p * sizeof(Pair));
+		memobj_header->EnqueueRead(&frame.header, sizeof(Header));
 
-		frame_times.push_back(header.t);
+		frame_times.push_back(frame.header.t);
 
 		unsigned int i = frame_times.size() - 1;
 

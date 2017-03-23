@@ -2,7 +2,10 @@
 //
 
 
+
 #include "stdafx.h"
+
+#include "Socket.h"
 
 #include <vector>
 #include <map>
@@ -15,6 +18,8 @@
 #include <string>
 #include <algorithm>
 #include <regex>
+#include <signal.h>
+#include <deque>
 
 #include <Windows.h>
 #include <GL/glew.h>
@@ -27,6 +32,10 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <boost/bind.hpp>
+#include <boost/program_options.hpp>
+#include <boost/tokenizer.hpp>
+
 #include "OCL.h"
 #include "kernel.h"
 #include "RenderGeometry.h"
@@ -34,12 +43,29 @@
 #include "Frame.h"
 #include "History.h"
 
+sig_atomic_t signaled = 0;
+
+void SignalHandler(int s)
+{
+	printf("Caught signal %d\n", s);
+	signaled = 1;
+}
+void init_signal()
+{
+	typedef void(*SignalHandlerPointer)(int);
+
+	//SignalHandlerPointer previousHandler;
+	signal(SIGINT, SignalHandler);
+	signal(SIGTERM, SignalHandler);
+	//signal(SIGABRT, SignalHandler);
+}
+
 double G = 6.67408E-11;
 double pi = 3.1415926535897;
 
-double eye_z = 800.0;
-double perspective_near = 1.0;
-double perspective_far = 10000.0;
+float eye_z = 800.0;
+float perspective_near = 1.0;
+float perspective_far = 10000.0;
 
 int n_disc = 100;
 
@@ -56,6 +82,8 @@ Sphere sphere;
 GLuint matrixID_mv;
 GLuint matrixID_p;
 glm::mat4 proj, view;
+
+
 
 void print(glm::mat4 const & m)
 {
@@ -95,6 +123,11 @@ void gl_check_error()
 	}
 }
 
+double body_surface_gravity(Body & b)
+{
+	return G * b.mass / pow(b.radius, b.radius);
+}
+
 double gravity_uniform_disc(double density, double p, double r)
 {
 	double k = 4.0 * r * p / (pow(r, 2.0) + pow(p, 2.0) + 2.0 * r * p);
@@ -104,15 +137,47 @@ double gravity_uniform_disc(double density, double p, double r)
 	return 4.0 * G * density * pow(p, 0.5) / k / pow(r, 0.5) * a;
 }
 
+void notification()
+{
+
+}
 
 void clear_bodies(std::vector<Body> & bodies)
 {
-	for (int i = 0; i < bodies.size(); ++i)
+	for (unsigned int i = 0; i < bodies.size(); ++i)
 	{
 		bodies[i].q.v[0] = 1;
 		bodies[i].q.v[1] = 0;
 		bodies[i].q.v[2] = 0;
 		bodies[i].q.v[3] = 0;
+	}
+}
+
+void generate_cluster(
+	std::vector<Body> & bodies,
+	std::vector<Pair> & pairs)
+{
+	bodies.resize(3);
+
+	double mass = 1.0E11;
+	double density = 5000.0;
+	double radius = pow(3.0 * mass / 4.0 / pi / density, 1.0 / 3.0);
+
+	clear_bodies(bodies);
+
+	int n = bodies.size();
+
+	for (int i = 0; i < n; ++i)
+	{
+		Body & b = bodies[i];
+
+		b.mass = mass;
+		b.radius = radius;
+		b.density = density;
+
+		double & x = b.pos.v[0];
+
+		x = ((double)i - (double)(n - 1) / 2.0) * radius * 1.0;
 	}
 }
 
@@ -147,21 +212,21 @@ void generate_binary_system(
 	printf("b1.mass   = %16.2e\n", b1.mass);
 	printf("b1.radius = %16.2e\n", b1.radius);
 
-	double d = 300.0;
+	double d = 500.0;
 
 	x0 = d * m1 / (m0 + m1);
 	x1 = x0 - d;
 
 	double f = 0.2;
 
-	if (0)
+	if (1)
 	{
 		b0.vel.v[1] = f * sqrt(G * m1 * x0 / d / d);
 		b1.vel.v[1] = -f * sqrt(G * m1 * -x1 / d / d);
 	}
 
 
-	b0.w.v[2] = 0.001;
+	//b0.w.v[2] = 0.001;
 
 	//b0.q.v[3] = 0.3;
 
@@ -240,6 +305,8 @@ void generate_disc(
 
 		b.pos.v[0] = x;
 		b.pos.v[1] = y;
+
+		printf("surface gravity = %16.2e", body_surface_gravity(b));
 	}
 
 	double X = 0;
@@ -274,7 +341,7 @@ void generate_disc(
 		}
 		else
 		{
-			double f = 0.5;
+			double f = 0.9;
 
 			double acc2 = f * gravity_uniform_disc(density, radius, r);
 
@@ -362,13 +429,14 @@ void draw_body(Body & b)
 
 	glm::mat4 mv = view * model;
 
-	printf("q\n");
-	print(b.q);
-	printf("w\n");
-	print(b.w);
-	printf("a\n");
-	print(b.a);
-	
+	if (0){
+		printf("q\n");
+		print(b.q);
+		printf("w\n");
+		print(b.w);
+		printf("a\n");
+		print(b.a);
+	}
 	//print(r);
 
 	glUniformMatrix4fv(matrixID_mv, 1, GL_FALSE, &mv[0][0]);
@@ -379,17 +447,20 @@ void draw_body(Body & b)
 }
 void draw_frame(std::shared_ptr<Frame> & frame)
 {
-	for (int i = 0; i < frame->bodies.size(); ++i)
+	for (unsigned int i = 0; i < frame->bodies.size(); ++i)
 	{
 		draw_body(frame->bodies[i]);
 	}
 
-	// debug
-	for (int i = 0; i < frame->pairs.size(); ++i)
-	{
-		printf("pair F = %16.2e\n", frame->pairs[i].F);
+	if (0){
+		// debug
+		for (unsigned int i = 0; i < frame->pairs.size(); ++i)
+		{
+			printf("pair F = %16.2e\n", frame->pairs[i].F);
+		}
 	}
 }
+
 
 
 
@@ -497,9 +568,6 @@ GLuint LoadShaders(const char * vertex_file_path, const char * fragment_file_pat
 	return ProgramID;
 }
 
-
-
-
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	if (key == GLFW_KEY_Q && action == GLFW_PRESS)
@@ -522,6 +590,12 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, GLFW_TRUE);
+}
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+	//printf("xoffset=%f yoffset=%f\n", xoffset, yoffset);
+
+	eye_z *= pow(1.1, -yoffset);
 }
 void init_glew()
 {
@@ -563,18 +637,14 @@ void plotfunc(History & hist)
 	}
 
 	glfwSetKeyCallback(window, key_callback);
+	glfwSetScrollCallback(window, scroll_callback);
 
 	glfwMakeContextCurrent(window);
 
 	init_glew();
 
-	
 	sphere.construct();
 	sphere.setup();
-
-	Rect rect;
-	//rect.construct();
-	//rect.setup();
 
 	proj = glm::perspective<float>(
 		glm::radians(90.0f),
@@ -582,11 +652,7 @@ void plotfunc(History & hist)
 		perspective_near,
 		perspective_far);
 
-	view = glm::lookAt(
-		glm::vec3(0, 0, eye_z), // Camera is at (4,3,3), in World Space
-		glm::vec3(0, 0, 0), // and looks at the origin
-		glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
-		);
+	
 
 	// Create and compile our GLSL program from the shaders
 	GLuint programID = LoadShaders("SimpleVertexShader.vertexshader", "SimpleFragmentShader.fragmentshader");
@@ -616,6 +682,14 @@ void plotfunc(History & hist)
 
 	do
 	{
+		view = glm::lookAt(
+			glm::vec3(0, 0, eye_z), // Camera is at (4,3,3), in World Space
+			glm::vec3(0, 0, 0), // and looks at the origin
+			glm::vec3(0, 1, 0)  // Head is up (set to 0,-1,0 to look upside-down)
+			);
+
+
+
 		double t1 = glfwGetTime();
 		double dt = t1 - t0;
 		t0 = t1;
@@ -681,7 +755,7 @@ inline bool file_exists(const std::string& name)
 
 unsigned int next_power_of_two(unsigned int x)
 {
-	int ret = 2;
+	unsigned int ret = 2;
 	while (ret < x)
 	{
 		ret *= 2;
@@ -720,6 +794,7 @@ public:
 
 		kernel_calc_acc = program->create_kernel("calc_acc");
 		kernel_step = program->create_kernel("step_pos");
+		kernel_dt_calc = program->create_kernel("dt_calc");
 		kernel_dt_min = program->create_kernel("k_min");
 		kernel_dt_store = program->create_kernel("store_dt");
 
@@ -731,17 +806,18 @@ public:
 
 		memobj_header = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(Header));
 		memobj_header->EnqueueWrite(&header, sizeof(Header));
-
+		
 		unsigned int counter = 0;
 		auto memobj_counter = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
 		memobj_counter->EnqueueWrite(&counter, sizeof(unsigned int));
 
-		auto memobj_dt_input = ocl->create_buffer(CL_MEM_READ_WRITE, p * sizeof(double));
+		auto memobj_dt_input = ocl->create_buffer(CL_MEM_READ_WRITE, (n + p) * sizeof(double));
 
 		auto memobj_dt_partial = ocl->create_buffer(CL_MEM_READ_WRITE, p * sizeof(double));
 
+		int dt_len = n + p;
 		auto memobj_dt_len = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
-		memobj_dt_len->EnqueueWrite(&p, sizeof(unsigned int));
+		memobj_dt_len->EnqueueWrite(&dt_len, sizeof(unsigned int));
 
 		kernel_calc_acc->set_arg(memobj_header, 0);
 		kernel_calc_acc->set_arg(memobj_bodies, 1);
@@ -753,6 +829,12 @@ public:
 		kernel_step->set_arg(memobj_bodies, 1);
 		kernel_step->set_arg(memobj_pairs, 2);
 		kernel_step->set_arg(memobj_counter, 3);
+
+		kernel_dt_calc->set_arg(memobj_header, 0);
+		kernel_dt_calc->set_arg(memobj_bodies, 1);
+		kernel_dt_calc->set_arg(memobj_pairs, 2);
+		kernel_dt_calc->set_arg(memobj_dt_input, 3);
+		kernel_dt_calc->set_arg(memobj_counter, 4);
 
 		kernel_dt_min->set_arg(memobj_dt_input, 0);
 		kernel_dt_min->set_arg(memobj_dt_len, 1);
@@ -775,15 +857,45 @@ public:
 
 	std::shared_ptr<OCL::Kernel>	kernel_calc_acc;
 	std::shared_ptr<OCL::Kernel>	kernel_step;
+	std::shared_ptr<OCL::Kernel>	kernel_dt_calc;
 	std::shared_ptr<OCL::Kernel>	kernel_dt_min;
 	std::shared_ptr<OCL::Kernel>	kernel_dt_store;
 };
 
+bool	should_print_step(int i)
+{
+	if (m >= 1000)
+	{
+		if (i % (m / 1000) == 0) return true;
+	}
+	else if (m >= 100)
+	{
+		if (i % (m / 100) == 0) return true;
+	}
+	else if (m >= 10)
+	{
+		if (i % (m / 10) == 0) return true;
+	}
+	else
+	{
+		return true;
+	}
+	return false;
+}
+bool	should_save_frame(int i)
+{
+	if ((i % 10) == 0) return true;
+	return false;
+}
+
+void	print_simulation_step(Header & header, int i)
+{
+	printf("%12i t=%16.2ef dt=%16.2e count_pen=%8i\n", i, header.t, header.dt, header.count_pen);
+}
+
 int simulate()
 {
 	srand(time(NULL));
-
-	
 
 	History hist("C:\\test");
 	
@@ -808,8 +920,9 @@ int simulate()
 	}
 	else
 	{
-		generate_binary_system(bodies, pairs);
-		//generate_disc(bodies, pairs, n_disc);
+		//generate_binary_system(bodies, pairs);
+		generate_disc(bodies, pairs, n_disc);
+		//generate_cluster(bodies, pairs);
 
 		generate_pairs(bodies, pairs);
 
@@ -834,51 +947,60 @@ int simulate()
 	// if this is a new simulation, save the zero frame
 	if (hist.frame_times.empty())
 	{
-		hist.push(header, om.memobj_bodies, om.memobj_pairs, bodies.size());
+		hist.push(om.memobj_header, om.memobj_bodies, om.memobj_pairs, bodies.size());
 	}
 	else
 	{
-		header.t = hist.frame_times.back();
+		// think this is done above already
+		//header.t = hist.frame_times.back();
 	}
 
+	int dt_len = n + p;
 
 	for (int i = 0; i < m; ++i)
 	{
 		double t0 = header.t;
 
-		om.kernel_calc_acc->enqueue_ND_range_kernel(next_power_of_two(p), 1);
+		om.kernel_calc_acc->enqueue_ND_range_kernel(1024, 1024);
 		
-		om.kernel_dt_min->enqueue_ND_range_kernel(next_power_of_two(p), std::min<unsigned int>(next_power_of_two(p), 1024));
+		om.kernel_dt_calc->enqueue_ND_range_kernel(next_power_of_two(n), 1);
+
+		om.kernel_dt_min->enqueue_ND_range_kernel(next_power_of_two(dt_len), std::min<unsigned int>(next_power_of_two(dt_len), 1024));
 
 		om.kernel_dt_store->enqueue_ND_range_kernel(1, 1);
 
 		om.kernel_step->enqueue_ND_range_kernel(next_power_of_two(n), 1);
 
-
-		om.memobj_header->EnqueueRead(&header, sizeof(Header));
-
-		header.t = t0 + header.dt;
-
-		if (m >= 100)
+		if (should_print_step(i) || should_save_frame(i))
 		{
-			if (i % (m / 100) == 0) printf("%8i t=%16f dt=%16f count_pen=%8i\n", i, header.t, header.dt, header.count_pen);
-		}
-		else
-		{
-			if (i % (m / 10) == 0) printf("%8i t=%16f dt=%16f count_pen=%8i\n", i, header.t, header.dt, header.count_pen);
+			//om.memobj_header->EnqueueRead(&header, sizeof(Header));
 		}
 
-		// save
-		hist.push(header, om.memobj_bodies, om.memobj_pairs, n);
+		// doing this at the end of step kernel
+		//header.t = t0 + header.dt;
+
+		if (should_print_step(i)) {
+			printf("%8i\n", i);
+			//print_simulation_step(header, i);
+		}
+
+		// only save every tenth frame
+		if (should_save_frame(i)) {
+			//om.memobj_header->EnqueueRead(&header, sizeof(Header));
+			hist.push(om.memobj_header, om.memobj_bodies, om.memobj_pairs, n);
+		}
+		
+		if (signaled==1)
+		{
+			init_signal();
+			signaled = 0;
+			break;
+		}
 	}
-
-	
 
 	std::cout << "read" << std::endl;
 
 	om.memobj_bodies->EnqueueRead(&bodies[0], n * sizeof(Body));
-
-	
 
 	hist.write();
 
@@ -886,8 +1008,10 @@ int simulate()
 
 	om.shutdown();
 
-	getchar();
-
+	/*char message[256];
+	sprintf_s(message, "simulation complete");
+	client("192.168.56.2","4001",message);*/
+	
 	return 0;
 }
 
@@ -901,35 +1025,183 @@ int render()
 	return 0;
 }
 
-int _tmain(int argc, _TCHAR* argv[])
+
+
+namespace po = boost::program_options;
+
+// copy_if was left out of the C++03 standard, so mimic the C++11
+// behavior to support all predicate types.  The alternative is to
+// use remove_copy_if, but it only works for adaptable functors.
+//template <typename InputIterator,
+//	typename OutputIterator,
+//	typename Predicate>
+//	OutputIterator
+//	copy_if(InputIterator first,
+//	InputIterator last,
+//	OutputIterator result,
+//	Predicate pred)
+//{
+//	while (first != last)
+//	{
+//		if (pred(*first))
+//			*result++ = *first;
+//		++first;
+//	}
+//	return result;
+//}
+
+/// @brief Tokenize a string.  The tokens will be separated by each non-quoted
+///        space or equal character.  Empty tokens are removed.
+///
+/// @param input The string to tokenize.
+///
+/// @return Vector of tokens.
+std::deque<std::string> tokenize(const std::string& input)
 {
+	typedef boost::escaped_list_separator<char> separator_type;
+	separator_type separator("\\",    // The escape characters.
+		"= ",    // The separator characters.
+		"\"\'"); // The quote characters.
+
+	// Tokenize the intput.
+	boost::tokenizer<separator_type> tokens(input, separator);
+
+	// Copy non-empty tokens from the tokenizer into the result.
+	std::deque<std::string> result;
+	
+	copy_if(tokens.begin(), tokens.end(), std::back_inserter(result), !boost::bind(&std::string::empty, _1));
+
+	return result;
+}
+
+void print_usage(po::options_description & desc)
+{
+	std::cout << "Usage: " << "<command> [options]" << std::endl;
+	std::cout << desc << std::endl;
+}
+
+class App{
+public:
+	virtual void run(std::vector<std::string>) = 0;
+};
+class AppSimulate: public App
+{
+public:
+	virtual void run(std::vector<std::string> vec)
+	{
+		po::options_description desc("simulation options");
+
+		desc.add_options()
+			("help", "produce help message")
+			("m", po::value<int>(), "simulation steps");
+
+		po::variables_map vm;
+		
+		try{
+			po::store(po::command_line_parser(vec).options(desc).run(), vm);
+		}
+		catch (std::exception & e)
+		{
+			std::cout << e.what() << std::endl;
+			std::cout << desc << std::endl;
+			return;
+		}
+
+		po::notify(vm);
+
+		if (vm.count("help"))
+		{
+			std::cout << desc << std::endl;
+			return;
+		}
+
+		if (vm.count("m"))
+		{
+			m = vm["m"].as<int>();
+		}
+
+		simulate();
+	}
+};
+class AppRender : public App
+{
+public:
+	virtual void run(std::vector<std::string> vec)
+	{
+		po::options_description desc("render options");
+
+		desc.add_options()
+			("help", "produce help message");
+
+		po::variables_map vm;
+
+		try{
+			po::store(po::command_line_parser(vec).options(desc).run(), vm);
+		}
+		catch (std::exception & e)
+		{
+			std::cout << e.what() << std::endl;
+			std::cout << desc << std::endl;
+			return;
+		}
+
+		po::notify(vm);
+
+		if (vm.count("help"))
+		{
+			print_usage(desc);
+			return;
+		}
+
+		render();
+	}
+};
+
+App * new_app_simulate(){ return new AppSimulate(); }
+App * new_app_render(){ return new AppRender(); }
+
+int _tmain(int argc, char* argv[])
+{
+	init_signal();
+
 	while (true){
 
 		std::cout << "enter command" << std::endl;
 		std::string s;
 		std::getline(std::cin, s);
 
-		std::smatch sm1;
+		auto tok = tokenize(s);
 
-		std::regex e1("s (\\d+)");
+		if (tok.size() == 0) break;
 
-		if (std::regex_match(s, sm1, e1))
+		std::string command = tok.front();
+
+		std::map<std::string, std::function<App*()>> app_map;
+		app_map["s"] = &new_app_simulate;
+		app_map["r"] = &new_app_render;
+
+		auto it = app_map.find(command);
+
+		if (it == app_map.end())
 		{
-			m = stoi(sm1[1]);
+			std::cout << "Invalid command" << std::endl;
+			std::cout << "Commands" << std::endl;
+			std::cout << "  s" << std::endl;
+			std::cout << "  r" << std::endl;
+			continue;
+		}
 
-			simulate();
-		}
-		else if (s.compare("r") == 0)
-		{
-			render();
-		}
-		else{
-			break;
-		}
+		App * app = (it->second)();
+
+		tok.pop_front();
+
+		std::vector<std::string> vec(tok.begin(), tok.end());
+
+		app->run(vec);
+
 	}
 	return 0;
 }
-
 
 
 
