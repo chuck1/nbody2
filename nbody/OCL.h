@@ -13,6 +13,10 @@
 
 namespace OCL
 {
+	class Error: public std::exception
+	{
+
+	};
 
 	inline const char *getErrorString(cl_int error)
 	{
@@ -101,7 +105,7 @@ namespace OCL
 		if (result != CL_SUCCESS){
 			std::cerr << s << ":" << getErrorString(result) << std::endl;
 			getchar();
-			exit(0);
+			throw OCL::Error();
 		}
 	}
 
@@ -126,12 +130,17 @@ namespace OCL
 		void	set_arg(std::shared_ptr<MemObj> memobj, int arg);
 		void	set_arg(int arg, unsigned int size);
 
-		void enqueue_ND_range_kernel(unsigned int global_size, unsigned int local_size);
+		void	enqueue_ND_range_kernel(unsigned int global_size, unsigned int local_size);
+		void	enqueue_ND_range_kernel();
 		
+		unsigned int	gs;
+		unsigned int	ls;
+
 		cl_kernel id;
 		std::weak_ptr<Manager> _M_mgr;
+		std::string name;
 	};
-
+	
 	class Program
 	{
 	public:
@@ -154,120 +163,13 @@ namespace OCL
 	{
 	public:
 		void init();
-		std::shared_ptr<MemObj>		create_buffer(cl_mem_flags mem_flags, unsigned int size)
-		{
-			printf("create buffer %u\n", size);
+		std::shared_ptr<MemObj>		create_buffer(cl_mem_flags mem_flags, unsigned int size);
+		std::shared_ptr<Program>	create_program(char ** fileNames, int len, std::string args);
 
-			int rc;
-			std::shared_ptr<MemObj> ret = std::make_shared<MemObj>();
-			ret->id = clCreateBuffer(context, mem_flags, size, NULL, &rc);
-			ret->_M_mgr = shared_from_this();
-			_M_memobj.push_back(ret);
-			return ret;
-		}
-		std::shared_ptr<Program>	create_program(char ** fileNames, int len, std::string args)
-		{
-			
-			char ** source_str = new char*[len];
-			//char source_str[MAX_SOURCE_SIZE];
-			size_t * source_size = new size_t[len];
-
-			/* Load the source code containing the kernel*/
-
-			for (int i = 0; i < len; ++i)
-			{
-				FILE *fp;
-				printf("opening file %s\n", fileNames[i]);
-				fopen_s(&fp, fileNames[i], "r");
-
-				if (!fp) {
-					printf("file load error\n");
-					throw std::exception("Failed to load kernel");
-					abort();
-				}
-				
-				source_str[i] = (char*)malloc(MAX_SOURCE_SIZE);
-				source_size[i] = fread(source_str[i], 1, MAX_SOURCE_SIZE, fp);
-				fclose(fp);
-
-				source_str[i][source_size[i]] = 0;
-
-				//printf("source size = %u\n", source_size[i]);
-				//printf("%s\n", source_str[i]);
-				
-			}
-
-			cl_int ret;
-
-			cl_program program_id;
-
-			program_id = clCreateProgramWithSource(context, 1, (const char **)source_str, (const size_t *)source_size, &ret);
-
-			errorcheck("clCreateProgramWithSource", ret);
-
-			free(source_str);
-
-			//printf("building program %s\n", fileNames);
-
-			printf("define string: %s\n", args.c_str());
-
-			/* Build Kernel Program */
-			ret = clBuildProgram(program_id, 1, &device_id, args.c_str(), NULL, NULL);
-
-			if (ret != CL_SUCCESS) {
-				char* programLog;
-				cl_build_status status;
-				size_t logSize;
-
-				// check build error and build status first
-				clGetProgramBuildInfo(program_id, device_id, CL_PROGRAM_BUILD_STATUS, sizeof(cl_build_status), &status, NULL);
-
-				// check build log
-				clGetProgramBuildInfo(program_id, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &logSize);
-
-				programLog = (char*)calloc(logSize + 1, sizeof(char));
-
-				clGetProgramBuildInfo(program_id, device_id, CL_PROGRAM_BUILD_LOG, logSize + 1, programLog, NULL);
-
-				printf("Build failed; error=%d, status=%d, programLog:nn%s", ret, status, programLog);
-				free(programLog);
-				
-				throw std::exception();
-			}
-
-			printf("build successful\n");
-
-			auto program = std::make_shared<Program>();
-			program->id = program_id;
-			program->_M_mgr = shared_from_this();
-
-			_M_programs.push_back(program);
-
-			return program;
-		}
-		void flush()
-		{
-			cl_int ret;
-			ret = clFlush(_M_command_queue);
-			OCL::errorcheck("clFlush", ret);
-			ret = clFinish(_M_command_queue);
-			OCL::errorcheck("clFinish", ret);
-		}
-		void shutdown()
-		{
-			cl_int ret;
-			
-			
-			
-			_M_programs.clear();
-			_M_memobj.clear();
-
-			
-			ret = clReleaseCommandQueue(_M_command_queue);
-			ret = clReleaseContext(context);
-		}
+		void						flush();
+		void						shutdown();
 		
-		
+		void						test();
 
 		cl_platform_id platform_id = NULL;
 		cl_device_id device_id = NULL;
@@ -277,12 +179,89 @@ namespace OCL
 		std::vector<std::shared_ptr<MemObj>> _M_memobj;
 		std::vector<std::shared_ptr<Program>> _M_programs;
 
-		//cl_mem memobj1 = NULL;
-		//cl_mem memobj2 = NULL;
+		unsigned int				device_max_work_group_size;
+	};
 
+	template<typename T>
+	class RoutineArrayReduce
+	{
+	public:
+		/*void								init(unsigned int len);
+		void								write(double * arr);
+		void								run();*/
 
-		
-		//cl_kernel kernel = NULL;
+		void								init(const char * s, unsigned int len, unsigned int N)
+		{
+			_M_len = len;
+
+			std::shared_ptr<OCL::Manager> mgr = _M_mgr.lock();
+			std::shared_ptr<OCL::Program> prg = _M_prg.lock();
+
+			unsigned int l = len;
+
+			unsigned int gs = next_power_of_two(l);
+			unsigned int ls = std::min(gs, N);
+			unsigned int gc = gs / ls;
+
+			std::shared_ptr<OCL::MemObj> m0 = mgr->create_buffer(CL_MEM_READ_WRITE, l * sizeof(T));
+			std::shared_ptr<OCL::MemObj> m1 = mgr->create_buffer(CL_MEM_READ_WRITE, gc * sizeof(T));
+
+			_M_memobj0 = m0;
+			_M_memobj1 = m1;
+
+			do
+			{
+				printf("gs=%8u ls=%8u gc=%8u l=%8u\n", gs, ls, gc, l);
+
+				auto k = prg->create_kernel(s);
+
+				k->gs = gs;
+				k->ls = ls;
+
+				std::shared_ptr<OCL::MemObj> m = mgr->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
+				m->EnqueueWrite(&l, sizeof(unsigned int));
+
+				k->set_arg(m0, 0);
+				k->set_arg(m, 1);
+				k->set_arg(m1, 2);
+				k->set_arg(3, N * sizeof(T));
+
+				_M_kernels.push_back(k);
+
+				std::swap(m0, m1);
+
+				l = gc;
+				gs = gc;
+				ls = std::min(gs, N);
+				gc = gs / ls;
+			} while (gs > 1);
+			
+			_M_memobj_out = m0;
+		}
+		void								write(T * arr)
+		{
+			std::shared_ptr<OCL::MemObj> m0 = _M_memobj0.lock();
+
+			m0->EnqueueWrite(arr, _M_len);
+		}
+		void								run()
+		{
+			for (unsigned int i = 0; i < _M_kernels.size(); ++i)
+			{
+				std::shared_ptr<OCL::Kernel> k = _M_kernels[i].lock();
+				k->enqueue_ND_range_kernel();
+			}
+		}
+
+		unsigned int						_M_len;
+
+		std::weak_ptr<Manager>				_M_mgr;
+		std::weak_ptr<Program>				_M_prg;
+
+		std::vector<std::weak_ptr<Kernel>>	_M_kernels;
+		std::weak_ptr<MemObj>				_M_memobj0;
+		std::weak_ptr<MemObj>				_M_memobj1;
+		std::weak_ptr<MemObj>				_M_memobj_out;
 	};
 
 	void OCLtest(OCL::Manager& ocl);

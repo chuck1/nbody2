@@ -5,6 +5,8 @@
 #include <GL/GLU.h>
 #include <GLFW/glfw3.h>
 
+#include "mymath.h"
+
 void gl_check_error();
 
 
@@ -120,8 +122,6 @@ class Sphere : public Geometry
 public:
 	void construct()
 	{
-		double pi = 3.1415926535897;
-
 		int m = 16;
 		int n = 16;
 
@@ -134,8 +134,8 @@ public:
 		{
 			for (int j = 0; j < n; ++j)
 			{
-				float a = (float(i + 1) / (float)m - 0.5) * pi;
-				float b = (float)j / (float)n * 2.0 * pi;
+				float a = (float(i + 1) / (float)m - 0.5f) * (float)M_PI;
+				float b = (float)j / (float)n * 2.0f * (float)M_PI;
 
 				float x = cos(b) * cos(a);
 				float y = sin(b) * cos(a);

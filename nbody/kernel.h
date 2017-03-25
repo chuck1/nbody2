@@ -7,16 +7,16 @@ struct Pair
 	int i;
 	int j;
 
+#ifdef KDEBUG
 	// distance
 	double d;
-
 	// relative speed
 	double s;
-
-	double dt;
-
-	// radius force
+	// radial force
 	double F;
+#endif
+
+	//double dt;
 };
 struct Header
 {
@@ -51,23 +51,27 @@ struct Mat43
 	double v[4][3];
 };
 
-struct Body
+struct Body0
 {
 	struct Vec3 pos;
+	
+	struct Quat q;
+
+	double radius;
+};
+struct Body1
+{
 	struct Vec3 vel;
 	struct Vec3 acc;
 
-	struct Quat q;
 	struct Vec3 w;
 	struct Vec3 a;
-
+	
 	struct Vec3 force;
 	struct Vec3 torque;
 
-	// debugging
 	struct Vec4 q1;
 
-	double radius;
 	double mass;
 	double density;
 };

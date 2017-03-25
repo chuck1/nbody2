@@ -15,16 +15,13 @@ int sign(float x)
 void main()
 {
 	vec4 mat_diffuse;
+	vec4 white = vec4(1,1,1,0);
 
 	float a = p0.x * p0.y * p0.z;
 
-	if(a > 0)
-		mat_diffuse = vec4(0,1,1,0);
-	else if(a < 0)
-		mat_diffuse = vec4(1,1,1,0);
-
 	mat_diffuse = vec4(sign(p0.x),sign(p0.y),sign(p0.z),0);
 
+	if((p0.x <= 0)&&(p0.y <= 0)&&(p0.z <= 0)) mat_diffuse = white;
 
 
 	// directional light

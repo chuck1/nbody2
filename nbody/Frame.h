@@ -1,5 +1,7 @@
+#ifndef FRAME_H
+#define FRAME_H
 
-
+#include <algorithm>
 #include <string>
 #include <fstream>
 #include <vector>
@@ -43,15 +45,15 @@ public:
 
 		myFile.read((char*)&s, sizeof(unsigned int));
 
-		bodies.resize(s);
+		bodies0.resize(s);
 
 		for (unsigned int i = 0; i < s; ++i)
 		{
-			myFile.read((char*)&bodies[i], sizeof(Body));
+			myFile.read((char*)&bodies0[i], sizeof(Body0));
 		}
 
 		// pairs
-
+#if 0
 		myFile.read((char*)&s, sizeof(unsigned int));
 
 		pairs.resize(s);
@@ -60,6 +62,7 @@ public:
 		{
 			myFile.read((char*)&pairs[i], sizeof(Pair));
 		}
+#endif
 	}
 	void				save(std::ofstream & myFile)
 	{
@@ -69,17 +72,17 @@ public:
 
 		// bodies
 
-		s = bodies.size();
+		s = bodies0.size();
 
 		myFile.write((char*)&s, sizeof(unsigned int));
 
 		for (unsigned int i = 0; i < s; ++i)
 		{
-			myFile.write((char*)&bodies[i], sizeof(Body));
+			myFile.write((char*)&bodies0[i], sizeof(Body0));
 		}
 
 		// pairs
-
+#if 0
 		s = pairs.size();
 
 		myFile.write((char*)&s, sizeof(unsigned int));
@@ -88,15 +91,16 @@ public:
 		{
 			myFile.write((char*)&pairs[i], sizeof(Pair));
 		}
+#endif
 	}
 
 	double				x_max()
 	{
 		double x = 0;
 
-		for (unsigned int i = 0; i < bodies.size(); ++i)
+		for (unsigned int i = 0; i < bodies0.size(); ++i)
 		{
-			x = std::max(x, bodies[i].pos.v[0]);
+			x = std::max(x, bodies0[i].pos.v[0]);
 		}
 
 		return x;
@@ -104,7 +108,7 @@ public:
 	void				print()
 	{
 		printf("bodies\n");
-		for (unsigned int i = 0; i < bodies.size(); ++i)
+		for (unsigned int i = 0; i < bodies0.size(); ++i)
 		{
 			printf("%4i\n", i);
 			//::print(bodies[i].pos);
@@ -112,15 +116,19 @@ public:
 			//::print(bodies[i].acc);
 		}
 
+#if 0
 		printf("pairs\n");
 		for (unsigned int i = 0; i < pairs.size(); ++i)
 		{
 			printf("  d=%8f s=%8f\n", pairs[i].d, pairs[i].s);
 		}
+#endif
 	}
 
 	Header				header;
-	std::vector<Body>	bodies;
-	std::vector<Pair>	pairs;
+	std::vector<Body0>	bodies0;
+	//std::vector<Pair>	pairs;
 };
 
+
+#endif

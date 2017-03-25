@@ -283,10 +283,49 @@ void			mat3_diagonal(struct Mat3 *	a, double b)
 	a->v[2][2] = b;
 }
 
+__kernel void k_sum_ulong(
+	__global const unsigned long * input,
+	__global unsigned int * len,
+	__global unsigned long * output,
+	__local unsigned long * loc)
+{
+	/*
+	length of partial must be at least number of work groups
+	final result is in partial[0]
+	*/
+
+	uint local_id = get_local_id(0);
+	uint global_id = get_global_id(0);
+	uint local_size = get_local_size(0);
+	uint global_size = get_global_size(0);
+
+	// Copy from global to local memory
+	if (global_id < *len) loc[local_id] = input[global_id];
+
+	// Loop for computing localSums : divide WorkGroup into 2 parts
+	for (uint stride = local_size / 2; stride > 0; stride /= 2)
+	{
+		// Waiting for each 2x2 addition into given workgroup
+		barrier(CLK_LOCAL_MEM_FENCE);
+
+		// prevent access beyond end of array
+		if (global_id > (*len - 1)) continue;
+		if ((global_id + stride) > (*len - 1)) continue;
+
+		// combine elements 2 by 2 between local_id and local_id + stride
+		if (local_id > (stride - 1)) continue;
+
+		loc[local_id] = loc[local_id] + loc[local_id + stride];
+	}
+
+	// write result into partial[nWorkGroups]
+	if (local_id == 0) output[get_group_id(0)] = loc[0];
+}
+
 __kernel void k_min(
 	__global const double * input,
 	__global unsigned int * len,
-	__global double * partial,
+	__global double * output,
 	__local double * loc)
 {
 	/*
@@ -296,62 +335,33 @@ __kernel void k_min(
 
 	uint local_id = get_local_id(0);
 	uint global_id = get_global_id(0);
-	uint group_size = get_local_size(0);
+	uint local_size = get_local_size(0);
 	uint global_size = get_global_size(0);
 
 	// Copy from global to local memory
-	if (global_id < *len)
-		loc[local_id] = input[global_id];
-	else
-		loc[local_id] = 0;
+	if (global_id < *len) loc[local_id] = input[global_id];
 
 	// Loop for computing localSums : divide WorkGroup into 2 parts
-	for (uint stride = group_size / 2; stride > 0; stride /= 2)
+	for (uint stride = local_size / 2; stride > 0; stride /= 2)
 	{
 		// Waiting for each 2x2 addition into given workgroup
 		barrier(CLK_LOCAL_MEM_FENCE);
 
-		// Add elements 2 by 2 between local_id and local_id + stride
-		if (local_id < stride)
-		{
-			if (loc[local_id] == 0)
-			{
-				loc[local_id] = loc[local_id + stride];
-			}
-			else if (loc[local_id + stride] == 0)
-			{
-			}
-			else 
-			{
-				loc[local_id] = min(loc[local_id], loc[local_id + stride]);
-			}
-		}
+		// prevent access beyond end of array
+		if (global_id > (*len - 1)) continue;
+		if ((global_id + stride) > (*len - 1)) continue;
+
+		// combine elements 2 by 2 between local_id and local_id + stride
+		if (local_id > (stride - 1)) continue;
+
+		loc[local_id] = min(loc[local_id], loc[local_id + stride]);
 	}
 
-	// Write result into partialSums[nWorkGroups]
-	if (local_id == 0)
-		partial[get_group_id(0)] = loc[0];
-	
-	barrier(CLK_GLOBAL_MEM_FENCE);
-
-	if (global_id == 0)
-	{
-		for (int i = 1; i < get_num_groups(0); ++i)
-		{
-			if (partial[0] == 0)
-			{
-				partial[0] = partial[i];
-			}
-			else if (partial[i] == 0)
-			{
-			}
-			else
-			{
-				partial[0] = min(partial[0], partial[i]);
-			}
-		}
-	}
+	// write result into partial[nWorkGroups]
+	if (local_id == 0) output[get_group_id(0)] = loc[0];
 }
+
+
 
 __kernel void store_dt(
 	__global double * dt_partial,
@@ -369,7 +379,13 @@ __kernel void store_dt(
 }
 
 
-void calc_acc_sub(__global struct Pair * p, __global struct Header * header, __global struct Body * bodies, __global double * dt_input, int ind)
+void calc_acc_sub(
+	__global struct Pair * p, 
+	__global struct Header * header, 
+	__global struct Body0 * bodies0,
+	__global struct Body1 * bodies1,
+	__global double * dt_input, 
+	int ind)
 {
 	struct Vec3 temp0;
 
@@ -378,24 +394,29 @@ void calc_acc_sub(__global struct Pair * p, __global struct Header * header, __g
 	double k_drag = 1.0E+0;
 	double k_repulsion = 0.01;
 
-	__global struct Body * b0 = &bodies[p->i];
-	__global struct Body * b1 = &bodies[p->j];
+	__global struct Body0 * b0_0 = &bodies0[p->i];
+	__global struct Body1 * b1_0 = &bodies1[p->i];
+
+	__global struct Body0 * b0_1 = &bodies0[p->j];
+	__global struct Body1 * b1_1 = &bodies1[p->j];
 
 	struct Vec3 R;
 
-	vector_sub_pgg(&R, &b1->pos, &b0->pos);
+	vector_sub_pgg(&R, &b0_1->pos, &b0_0->pos);
 
 	double r = vector_length_p(&R);
 
 	struct Vec3 v;
 
-	vector_sub_pgg(&v, &b1->vel, &b0->vel);
+	vector_sub_pgg(&v, &b1_1->vel, &b1_0->vel);
 
 	double s = vector_length_p(&v);
 
 	// save
+#ifdef DEBUG
 	p->d = r;
 	p->s = s;
+#endif
 
 	// calc dt
 	if (s == 0)
@@ -407,40 +428,40 @@ void calc_acc_sub(__global struct Pair * p, __global struct Header * header, __g
 		dt_input[ind] = min(TIME_STEP_FACTOR_PROXIMITY * r / s, 100.0);
 	}
 
-	double m0 = b0->mass;
-	double m1 = b1->mass;
+	double m0 = b1_0->mass;
+	double m1 = b1_1->mass;
 
 	double F = G * m0 * m1 / r / r;
 
 	// positive pen is penetration
 	// negative pen is no penetration
 
-	double pen = b0->radius + b1->radius - p->d;
+	double pen = b0_0->radius + b0_1->radius - r;
 
 	if (pen > 0)
 	{
 		atomic_inc(&header->count_pen);
 
 		// volume and mass of interseting region
-		double V = volume_sphere_sphere_intersection(p->d, b0->radius, b1->radius);
-		double m = V * (b0->density + b1->density);
+		double V = volume_sphere_sphere_intersection(r, b0_0->radius, b0_1->radius);
+		double m = V * (b1_0->density + b1_1->density);
 
 		// point at which drag force will act
 		struct Vec3 o;
-		vector_add_ppg(&o, vector_mul_pp(&temp0, &R, (b0->radius - pen / 2.0) / r), &b0->pos);
+		vector_add_ppg(&o, vector_mul_pp(&temp0, &R, (b0_0->radius - pen / 2.0) / r), &b0_0->pos);
 
 		// drag force
 		struct Vec3 F_drag0, F_drag1;
 
 		struct Vec3 R0, R1;
 
-		vector_sub_ppg(&R0, &o, &b0->pos);
-		vector_sub_ppg(&R1, &o, &b1->pos);
+		vector_sub_ppg(&R0, &o, &b0_0->pos);
+		vector_sub_ppg(&R1, &o, &b0_1->pos);
 
 		struct Vec3 vo0, vo1, vo_rel;
 
-		vector_add_ppg(&vo0, vector_cross_pgp(&temp0, &b0->w, &R0), &b0->vel);
-		vector_add_ppg(&vo1, vector_cross_pgp(&temp0, &b1->w, &R1), &b1->vel);
+		vector_add_ppg(&vo0, vector_cross_pgp(&temp0, &b1_0->w, &R0), &b1_0->vel);
+		vector_add_ppg(&vo1, vector_cross_pgp(&temp0, &b1_1->w, &R1), &b1_1->vel);
 
 		vector_sub_ppp(&vo_rel, &vo0, &vo1);
 
@@ -462,18 +483,20 @@ void calc_acc_sub(__global struct Pair * p, __global struct Header * header, __g
 			F -= k_repulsion * m;
 		}
 
-		vector_add_self_gp(&b0->force, &F_drag0);
-		vector_add_self_gp(&b1->force, &F_drag1);
+		vector_add_self_gp(&b1_0->force, &F_drag0);
+		vector_add_self_gp(&b1_1->force, &F_drag1);
 
-		vector_add_self_gp(&b0->torque, &T0);
-		vector_add_self_gp(&b1->torque, &T1);
+		vector_add_self_gp(&b1_0->torque, &T0);
+		vector_add_self_gp(&b1_1->torque, &T1);
 	}
 
 	// gravity and repulsion
-	vector_add_self_gp(&b0->force, vector_mul_pp(&temp0, &R, F / r));
-	vector_sub_self_gp(&b1->force, vector_mul_pp(&temp0, &R, F / r));
+	vector_add_self_gp(&b1_0->force, vector_mul_pp(&temp0, &R, F / r));
+	vector_sub_self_gp(&b1_1->force, vector_mul_pp(&temp0, &R, F / r));
 
+#ifdef KDEBUG
 	p->F = F;
+#endif
 }
 
 int get_pair(__global struct Pair * pairs, int p, int i, int j)
@@ -488,10 +511,10 @@ int get_pair(__global struct Pair * pairs, int p, int i, int j)
 
 __kernel void calc_acc(
 	__global struct Header * header,
-	__global struct Body * bodies,
+	__global struct Body0 * bodies0,
+	__global struct Body1 * bodies1,
 	__global struct Pair * pairs,
-	__global double * dt_input,
-	volatile __global unsigned int * counter)
+	__global double * dt_input)
 {
 	/* MUST USE ONLY ONE WORK GROUP
 	*/
@@ -501,7 +524,6 @@ __kernel void calc_acc(
 	if (get_local_id(0) == 0) {
 		header->dt = 0;
 		header->count_pen = 0;
-		*counter = 0;
 	}
 
 	barrier(CLK_GLOBAL_MEM_FENCE);
@@ -542,60 +564,49 @@ __kernel void calc_acc(
 
 			int k = get_pair(pairs, p, i0, j0);
 
-			calc_acc_sub(&pairs[k], header, bodies, dt_input, k);
+			calc_acc_sub(&pairs[k], header, bodies0, bodies1, dt_input, k);
 		}
 	}
 }
 
 __kernel void dt_calc(
 	__global struct Header * header,
-	__global struct Body * bodies,
-	__global struct Pair * pairs,
-	__global double * dt_input,
-	volatile __global unsigned int * counter)
+	__global struct Body0 * bodies0,
+	__global struct Body1 * bodies1,
+	__global double * dt_input)
 {
-	if (get_global_id(0) == 0) {
-		*counter = 0;
-	}
-
-	barrier(CLK_GLOBAL_MEM_FENCE);
-
 	int n = header->bodies_size;
 	int p = n * (n - 1) / 2;
 
-	while (true)
+	unsigned int ind = get_global_id(0);
+	
+	if (ind > (n - 1)) return;
+
+	__global struct Body0 * b0 = &bodies0[ind];
+	__global struct Body1 * b1 = &bodies1[ind];
+
+	double f = vector_length_g(&b1->force);
+	double a = f / b1->mass;
+	double v = vector_length_g(&b1->vel);
+	
+	if (a == 0)
 	{
-		unsigned int ind = atomic_inc(counter);
-		if (ind > (n - 1)) break;
-
-		__global struct Body * b = &bodies[ind];
-
-		double f = vector_length_g(&b->force);
-		double a = f / b->mass;
-		double v = vector_length_g(&b->vel);
-		
-		if (a == 0)
-		{
-			dt_input[p + ind] = 0.0;
-		}
-		else
-		{
-			dt_input[p + ind] = TIME_STEP_FACTOR_ACC * v / a;
+		dt_input[p + ind] = 0.0;
+	}
+	else
+	{
+		dt_input[p + ind] = TIME_STEP_FACTOR_ACC * v / a;
 			
-			dt_input[p + ind] = max(dt_input[p + ind], 1.0E-5);
-		}
+		dt_input[p + ind] = max(dt_input[p + ind], 1.0E-5);
 	}
 }
 
 __kernel void step_pos(
 	__global struct Header * header,
-	__global struct Body * bodies,
-	__global struct Pair * pairs,
-	volatile __global unsigned int * counter)
+	__global struct Body0 * bodies0,
+	__global struct Body1 * bodies1,
+	__global struct Pair * pairs)
 {
-	//if (get_global_id(0) == 0) *counter = 0;
-	//barrier(CLK_GLOBAL_MEM_FENCE);
-
 	int len = header->bodies_size;
 
 	double dt = header->dt;
@@ -604,76 +615,70 @@ __kernel void step_pos(
 
 	if (ind > (len - 1)) return;
 
-	//while (true)
-	{
-		//unsigned int ind = atomic_inc(counter);
-		//if (ind > (len - 1)) break;
+	__global struct Body0 * b0 = &bodies0[ind];
+	__global struct Body1 * b1 = &bodies1[ind];
 
-		int i = ind;
+	struct Vec3 v0 = b1->vel;
+	struct Vec3 a0 = b1->acc;
 
-		__global struct Body * b = &bodies[i];
+	struct Vec3 temp0, temp1, temp2;
 
-		struct Vec3 v0 = b->vel;
-		struct Vec3 a0 = b->acc;
+	vector_mul_gg(&b1->acc, &b1->force, 1.0 / b1->mass);
 
-		struct Vec3 temp0, temp1, temp2;
+	vector_add_self_gp(&b1->vel, vector_mul_pp(&temp0, &a0, dt));
 
-		vector_mul_gg(&b->acc, &b->force, 1.0 / b->mass);
+	vector_add_self_gp(&b0->pos, vector_add_ppp(&temp0, vector_mul_pp(&temp1, &v0, dt), vector_mul_pp(&temp2, &a0, dt * dt / 2.0)));
 
-		vector_add_self_gp(&b->vel, vector_mul_pp(&temp0, &a0, dt));
+	b1->force.v[0] = 0;
+	b1->force.v[1] = 0;
+	b1->force.v[2] = 0;
 
-		vector_add_self_gp(&b->pos, vector_add_ppp(&temp0, vector_mul_pp(&temp1, &v0, dt), vector_mul_pp(&temp2, &a0, dt * dt / 2.0)));
+	// rotation
 
-		b->force.v[0] = 0;
-		b->force.v[1] = 0;
-		b->force.v[2] = 0;
+	struct Quat tempq0, tempq1;
 
-		// rotation
-
-		struct Quat tempq0, tempq1;
-
-		struct Mat43 B0;
-		struct Mat43 B1;
+	struct Mat43 B0;
+	struct Mat43 B1;
 		
-		struct Vec4 tempv40, tempv41, tempv42;
+	struct Vec4 tempv40, tempv41, tempv42;
 
-		construct_B_quat_pg(&B0, &b->q);
+	construct_B_quat_pg(&B0, &b0->q);
 		
-		vec4_mul_gp(&b->q1, mat43_mul_ppg(&tempv40, &B0, &b->w), 0.5);
+	vec4_mul_gp(&b1->q1, mat43_mul_ppg(&tempv40, &B0, &b1->w), 0.5);
 
-		construct_B_vec4_pg(&B1, &b->q1);
+	construct_B_vec4_pg(&B1, &b1->q1);
 
-		struct Vec3 w1;
+	struct Vec3 w1;
 
-		//mat43_mul_ppg(&tempv41, &B1, &b->w);
-		//mat43_mul_ppp(&tempv42, &B0, &w1);
-		//vec4_mul_gp(&b->q2, vec4_add_ppp(&tempv40, &tempv41, &tempv42), 0.5);
+	//mat43_mul_ppg(&tempv41, &B1, &b->w);
+	//mat43_mul_ppp(&tempv42, &B0, &w1);
+	//vec4_mul_gp(&b->q2, vec4_add_ppp(&tempv40, &tempv41, &tempv42), 0.5);
 
-		for (int i = 0; i < 4; ++i) b->q.v[i] += b->q1.v[i] * dt;
+	for (int i = 0; i < 4; ++i) b0->q.v[i] += b1->q1.v[i] * dt;
 
-		quat_normalize_g(&b->q);
+	quat_normalize_g(&b0->q);
 
-		// update rotational velocity
+	// update rotational velocity
 
-		__global struct Vec3 * w = &b->w;
-		struct Vec3 alpha;
-		struct Vec3 * a = &alpha;
+	__global struct Vec3 * w = &b1->w;
+	struct Vec3 alpha;
+	struct Vec3 * a = &alpha;
 
-		struct Mat3 I, I_inv;
-		double I_scalar = 2.0 / 5.0 * b->mass * pow(b->radius, 2.0);
-		mat3_diagonal(&I, I_scalar);
-		mat3_diagonal(&I_inv, 1.0 / I_scalar);
+	struct Mat3 I, I_inv;
+	double I_scalar = 2.0 / 5.0 * b1->mass * pow(b0->radius, 2.0);
+	mat3_diagonal(&I, I_scalar);
+	mat3_diagonal(&I_inv, 1.0 / I_scalar);
 
-		mat3_mul_ppp(a, &I_inv, vector_sub_pgp(&temp0, &b->torque, vector_cross_pgp(&temp1, w, mat3_mul_ppg(&temp2, &I, w))));
+	mat3_mul_ppp(a, &I_inv, vector_sub_pgp(&temp0, &b1->torque, vector_cross_pgp(&temp1, w, mat3_mul_ppg(&temp2, &I, w))));
 
-		vector_add_self_gp(w, vector_mul_pp(&temp0, a, dt));
+	vector_add_self_gp(w, vector_mul_pp(&temp0, a, dt));
 
 		
 
-		b->torque.v[0] = 0;
-		b->torque.v[1] = 0;
-		b->torque.v[2] = 0;
-	}
+	b1->torque.v[0] = 0;
+	b1->torque.v[1] = 0;
+	b1->torque.v[2] = 0;
+	
 
 
 	if (get_global_id(0) == 0)

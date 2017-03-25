@@ -1,13 +1,18 @@
+#ifndef HISTORY_H
+#define HISTORY_H
 
 #include <string>
 #include <fstream>
+#include <map>
 
-
+#include "OCL.h"
+#include "Misc.h"
+#include "Frame.h"
 
 class History
 {
 public:
-	History(std::string f) : folder(f)
+	History()
 	{}
 
 	void						write()
@@ -19,36 +24,52 @@ public:
 		write(myFile);
 
 		myFile.close();
-
-
-		/*for (int i = 0; i < frames.size(); ++i)
-		{
-		frames[i].save(folder, i);
-		}*/
 	}
 	void						write(std::ofstream & myFile)
 	{
+		// frame times
+
 		unsigned int l = frame_times.size();
 
 		myFile.write((char *)&l, sizeof(unsigned int));
 
 		myFile.write((char *)&frame_times[0], sizeof(double)* l);
+
+		// bodies1
+
+		unsigned int s = bodies1.size();
+
+		myFile.write((char*)&s, sizeof(unsigned int));
+
+		myFile.write((char*)&bodies1[0], s * sizeof(Body1));
 	}
 
-	void						push(std::shared_ptr<OCL::MemObj> memobj_header, std::shared_ptr<OCL::MemObj> memobj_bodies, std::shared_ptr<OCL::MemObj> memobj_pairs, int n)
+	void						resize(int n)
 	{
-		//frames.emplace_back();
-		//Frame & frame = frames.back();
-		Frame frame;
-
+		frame.bodies0.resize(n);
+	}
+	void						push(
+		std::shared_ptr<OCL::MemObj> memobj_header, 
+		std::shared_ptr<OCL::MemObj> memobj_bodies0,
+		std::shared_ptr<OCL::MemObj> memobj_pairs, 
+		int n)
+	{
 		int p = n*(n - 1) / 2;
 
 		//frame.header = header;
-		frame.bodies.resize(n);
-		frame.pairs.resize(p);
+		
+		// this is done in the resize function
+		//frame.bodies0.resize(n);
+		
+		//frame.pairs.resize(p);
 
-		memobj_bodies->EnqueueRead(&frame.bodies[0], n * sizeof(Body));
-		memobj_pairs->EnqueueRead(&frame.pairs[0], p * sizeof(Pair));
+		//TimeMeasurement tm;
+		//tm.start();
+		memobj_bodies0->EnqueueRead(&frame.bodies0[0], n * sizeof(Body0));
+		//tm.stop();
+		//printf("read buffer %i bytes in %f seconds\n", n * sizeof(Body0), tm.dif);
+		
+		//memobj_pairs->EnqueueRead(&frame.pairs[0], p * sizeof(Pair));
 		memobj_header->EnqueueRead(&frame.header, sizeof(Header));
 
 		frame_times.push_back(frame.header.t);
@@ -56,13 +77,21 @@ public:
 		unsigned int i = frame_times.size() - 1;
 
 		frame.save(folder, i);
-
-		//frame.print();
 	}
-
 	void						load()
 	{
 		std::ifstream myFile(folder + "\\" + "frame_times.bin", std::ios::in | std::ios::binary);
+
+		if (!myFile.good()) throw std::exception("error with file");
+
+		load(myFile);
+
+		myFile.close();
+
+		printf("frame_times loaded. m = %u t = %f ... %f\n", frame_times.size(), frame_times.front(), frame_times.back());
+	}
+	void						load(std::ifstream & myFile)
+	{// frame times
 
 		unsigned int s;
 
@@ -72,7 +101,13 @@ public:
 
 		myFile.read((char *)&frame_times[0], sizeof(double)* s);
 
-		myFile.close();
+		// bodies1
+
+		myFile.read((char*)&s, sizeof(unsigned int));
+
+		bodies1.resize(s);
+
+		myFile.read((char*)&bodies1[0], s * sizeof(Body1));
 	}
 	std::shared_ptr<Frame>		get_frame(unsigned int i)
 	{
@@ -93,8 +128,15 @@ public:
 private:
 	std::map<unsigned int, std::shared_ptr<Frame>>	frames;
 
+	// buffer for reading from GPU and writing to file
+	Frame						frame;
+
 public:
+
 	std::vector<double>		frame_times;
+
+	// Body1 from last frame, needed to resume simulation
+	std::vector<Body1>		bodies1;
 
 	std::string				folder;
 };
@@ -102,3 +144,4 @@ public:
 
 
 
+#endif
