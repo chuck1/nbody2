@@ -42,8 +42,6 @@ public:
 		kernel_calc_acc = program->create_kernel("calc_acc");
 		kernel_step = program->create_kernel("step_pos");
 		kernel_dt_calc = program->create_kernel("dt_calc");
-		kernel_dt_min0 = program->create_kernel("k_min");
-		kernel_dt_min1 = program->create_kernel("k_min");
 		kernel_dt_store = program->create_kernel("store_dt");
 
 		std::cout << "bodies0" << std::endl;
@@ -67,31 +65,6 @@ public:
 
 		auto memobj_dt_input = ocl->create_buffer(CL_MEM_READ_WRITE, (n + p) * sizeof(double));
 
-		auto memobj_dt_partial = ocl->create_buffer(CL_MEM_READ_WRITE, ocl->device_max_work_group_size * sizeof(double));
-
-
-
-		
-
-
-
-
-
-
-
-		// dt min array lengths
-		unsigned int arr_len0 = n + p;
-		unsigned int gs0 = next_power_of_two(arr_len0);
-		unsigned int ls0 = std::min<unsigned int>(gs0, ocl->device_max_work_group_size);
-		assert((gs0 / ls0) <= ocl->device_max_work_group_size);
-		unsigned int gc0 = gs0 / ls0;
-		unsigned int arr_len1 = gc0;
-
-		auto memobj_dt_len0 = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
-		auto memobj_dt_len1 = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
-
-		memobj_dt_len0->EnqueueWrite(&arr_len0, sizeof(unsigned int));
-		memobj_dt_len1->EnqueueWrite(&arr_len1, sizeof(unsigned int));
 
 		// set kernel args
 
@@ -112,39 +85,49 @@ public:
 		kernel_dt_calc->set_arg(memobj_bodies1, 2);
 		kernel_dt_calc->set_arg(memobj_dt_input, 3);
 		
-		kernel_dt_min0->set_arg(memobj_dt_input, 0);
-		kernel_dt_min0->set_arg(memobj_dt_len0, 1);
-		kernel_dt_min0->set_arg(memobj_dt_partial, 2);
-		kernel_dt_min0->set_arg(3, 1024 * sizeof(double));
 
-		kernel_dt_min1->set_arg(memobj_dt_partial, 0);
-		kernel_dt_min1->set_arg(memobj_dt_len1, 1);
-		kernel_dt_min1->set_arg(memobj_dt_partial, 2);
-		kernel_dt_min1->set_arg(3, 1024 * sizeof(double));
+		routine_min_dt.reset(new OCL::RoutineArrayReduce<double>);
+		routine_min_dt->_M_mgr = ocl;
+		routine_min_dt->_M_prg = program;
+		routine_min_dt->_M_memobj_in = memobj_dt_input;
+		routine_min_dt->init("k_min_double", n + p, ocl->device_max_work_group_size);
 
-		kernel_dt_store->set_arg(memobj_dt_partial, 0);
+
+		kernel_dt_store->set_arg(routine_min_dt->_M_memobj_out.lock(), 0);
 		kernel_dt_store->set_arg(memobj_header, 1);
 
+#if 1
 		// test
-		unsigned long n1 = 16 * 16 * 16 * 3;
-		unsigned long * arr = new unsigned long[n1];
-		for (int i = 0; i < n1; ++i)
+		const unsigned int n1 = 35;
+		unsigned int arr[n1];
+		for (unsigned int i = 0; i < n1; ++i)
 		{
 			arr[i] = i+1;
 		}
 
-		OCL::RoutineArrayReduce<unsigned long> routine;
+		OCL::RoutineArrayReduce<unsigned int> routine;
 		routine._M_mgr = ocl;
 		routine._M_prg = program;
-		routine.init("k_sum_ulong", n1, 16);
+		routine.init("k_sum_uint", n1, 4);
+		routine.write(arr);
 
 		routine.run();
 
-		unsigned long res;
+		unsigned int res;
 
-		routine._M_memobj_out.lock()->EnqueueRead(&res, sizeof(unsigned long));
+		routine._M_memobj_out.lock()->EnqueueRead(&res, sizeof(unsigned int));
 
-		printf("sum of 1 ... %lu = %lu\n", n1, res);
+		/*unsigned long arr0[n1];
+		unsigned long arr1[1];
+
+		routine._M_memobj0.lock()->EnqueueRead(&arr0, n1 * sizeof(unsigned long));
+
+		routine._M_memobj1.lock()->EnqueueRead(&arr1, sizeof(unsigned long));*/
+
+		printf("sum of 1 ... %u = %lu\n", n1, res);
+#endif
+
+		
 	}
 	void	shutdown()
 	{
@@ -156,9 +139,9 @@ public:
 		kernel_calc_acc.reset();
 		kernel_step.reset();
 		kernel_dt_calc.reset();
-		kernel_dt_min0.reset();
-		kernel_dt_min1.reset();
 		kernel_dt_store.reset();
+
+		routine_min_dt.reset();
 
 		ocl->shutdown();
 	}
@@ -173,9 +156,9 @@ public:
 	std::shared_ptr<OCL::Kernel>	kernel_calc_acc;
 	std::shared_ptr<OCL::Kernel>	kernel_step;
 	std::shared_ptr<OCL::Kernel>	kernel_dt_calc;
-	std::shared_ptr<OCL::Kernel>	kernel_dt_min0;
-	std::shared_ptr<OCL::Kernel>	kernel_dt_min1;
 	std::shared_ptr<OCL::Kernel>	kernel_dt_store;
+
+	std::shared_ptr<OCL::RoutineArrayReduce<double>>	routine_min_dt;
 };
 
 #endif

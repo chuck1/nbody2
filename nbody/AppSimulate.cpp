@@ -142,12 +142,7 @@ int					AppSimulate::simulate()
 		ocl_app->kernel_dt_calc->enqueue_ND_range_kernel(next_power_of_two(n), 1);
 
 		
-		unsigned int gs = next_power_of_two(dt_len);
-		unsigned int ls = std::min<unsigned int>(next_power_of_two(dt_len), 1024);
-		assert((gs/ls) <= 1024);
-		unsigned int gc = gs / ls;
-		ocl_app->kernel_dt_min0->enqueue_ND_range_kernel(gs, ls); // mem alloc failure here!!!
-		ocl_app->kernel_dt_min1->enqueue_ND_range_kernel(1024, 1024);
+		ocl_app->routine_min_dt->run();
 
 
 		ocl_app->kernel_dt_store->enqueue_ND_range_kernel(1, 1);

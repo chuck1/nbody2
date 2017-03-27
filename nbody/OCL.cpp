@@ -8,7 +8,7 @@
 #include "Misc.h"
 
 
-void OCL::OCLtest(OCL::Manager& ocl)
+void OCLtest(OCL::Manager& ocl)
 {
 	cl_int ret;
 

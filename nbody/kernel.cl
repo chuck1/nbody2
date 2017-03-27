@@ -283,11 +283,11 @@ void			mat3_diagonal(struct Mat3 *	a, double b)
 	a->v[2][2] = b;
 }
 
-__kernel void k_sum_ulong(
-	__global const unsigned long * input,
-	__global unsigned int * len,
-	__global unsigned long * output,
-	__local unsigned long * loc)
+__kernel void k_sum_uint(
+	__global const unsigned int * input,
+	__global unsigned int * plen,
+	__global unsigned int * output,
+	__local unsigned int * loc)
 {
 	/*
 	length of partial must be at least number of work groups
@@ -299,32 +299,35 @@ __kernel void k_sum_ulong(
 	uint local_size = get_local_size(0);
 	uint global_size = get_global_size(0);
 
+	unsigned int len = *plen;
+
+	if (global_id > (len - 1)) return;
+
 	// Copy from global to local memory
-	if (global_id < *len) loc[local_id] = input[global_id];
+	loc[local_id] = input[global_id];
 
 	// Loop for computing localSums : divide WorkGroup into 2 parts
 	for (uint stride = local_size / 2; stride > 0; stride /= 2)
 	{
 		// Waiting for each 2x2 addition into given workgroup
 		barrier(CLK_LOCAL_MEM_FENCE);
+		
+		if (local_id > (stride - 1)) break;
 
-		// prevent access beyond end of array
-		if (global_id > (*len - 1)) continue;
-		if ((global_id + stride) > (*len - 1)) continue;
-
-		// combine elements 2 by 2 between local_id and local_id + stride
-		if (local_id > (stride - 1)) continue;
+		if ((global_id + stride) > (len - 1)) continue;
 
 		loc[local_id] = loc[local_id] + loc[local_id + stride];
 	}
+
+	//barrier(CLK_LOCAL_MEM_FENCE);
 
 	// write result into partial[nWorkGroups]
 	if (local_id == 0) output[get_group_id(0)] = loc[0];
 }
 
-__kernel void k_min(
+__kernel void k_min_double(
 	__global const double * input,
-	__global unsigned int * len,
+	__global unsigned int * plen,
 	__global double * output,
 	__local double * loc)
 {
@@ -338,8 +341,12 @@ __kernel void k_min(
 	uint local_size = get_local_size(0);
 	uint global_size = get_global_size(0);
 
+	unsigned int len = *plen;
+
+	if (global_id > (len - 1)) return;
+
 	// Copy from global to local memory
-	if (global_id < *len) loc[local_id] = input[global_id];
+	loc[local_id] = input[global_id];
 
 	// Loop for computing localSums : divide WorkGroup into 2 parts
 	for (uint stride = local_size / 2; stride > 0; stride /= 2)
@@ -347,15 +354,14 @@ __kernel void k_min(
 		// Waiting for each 2x2 addition into given workgroup
 		barrier(CLK_LOCAL_MEM_FENCE);
 
-		// prevent access beyond end of array
-		if (global_id > (*len - 1)) continue;
-		if ((global_id + stride) > (*len - 1)) continue;
+		if (local_id > (stride - 1)) break;
 
-		// combine elements 2 by 2 between local_id and local_id + stride
-		if (local_id > (stride - 1)) continue;
+		if ((global_id + stride) > (len - 1)) continue;
 
 		loc[local_id] = min(loc[local_id], loc[local_id + stride]);
 	}
+
+	//barrier(CLK_LOCAL_MEM_FENCE);
 
 	// write result into partial[nWorkGroups]
 	if (local_id == 0) output[get_group_id(0)] = loc[0];
@@ -364,13 +370,13 @@ __kernel void k_min(
 
 
 __kernel void store_dt(
-	__global double * dt_partial,
+	__global double * dt_output,
 	__global struct Header * header
 	)
 {
 	if (get_global_id(0) == 0)
 	{
-		header->dt = dt_partial[0];
+		header->dt = dt_output[0];
 
 		// override
 

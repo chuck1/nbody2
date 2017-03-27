@@ -203,12 +203,20 @@ namespace OCL
 			unsigned int ls = std::min(gs, N);
 			unsigned int gc = gs / ls;
 
-			std::shared_ptr<OCL::MemObj> m0 = mgr->create_buffer(CL_MEM_READ_WRITE, l * sizeof(T));
+			if (_M_memobj_in.expired())
+			{
+				_M_memobj_in = mgr->create_buffer(CL_MEM_READ_WRITE, l * sizeof(T));
+			}
+
+			std::shared_ptr<OCL::MemObj> m_in = _M_memobj_in.lock();
+			std::shared_ptr<OCL::MemObj> m0 = mgr->create_buffer(CL_MEM_READ_WRITE, gc * sizeof(T));
 			std::shared_ptr<OCL::MemObj> m1 = mgr->create_buffer(CL_MEM_READ_WRITE, gc * sizeof(T));
 
 			_M_memobj0 = m0;
 			_M_memobj1 = m1;
 
+			bool first = true;
+			
 			do
 			{
 				printf("gs=%8u ls=%8u gc=%8u l=%8u\n", gs, ls, gc, l);
@@ -221,14 +229,25 @@ namespace OCL
 				std::shared_ptr<OCL::MemObj> m = mgr->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
 				m->EnqueueWrite(&l, sizeof(unsigned int));
 
-				k->set_arg(m0, 0);
+				if (first)
+				{
+					k->set_arg(m_in, 0);
+					k->set_arg(m0, 2);
+					first = false;
+				}
+				else
+				{
+					k->set_arg(m0, 0);
+					k->set_arg(m1, 2);
+					std::swap(m0, m1);
+				}
+
 				k->set_arg(m, 1);
-				k->set_arg(m1, 2);
 				k->set_arg(3, N * sizeof(T));
 
 				_M_kernels.push_back(k);
 
-				std::swap(m0, m1);
+				
 
 				l = gc;
 				gs = gc;
@@ -240,9 +259,9 @@ namespace OCL
 		}
 		void								write(T * arr)
 		{
-			std::shared_ptr<OCL::MemObj> m0 = _M_memobj0.lock();
+			std::shared_ptr<OCL::MemObj> m0 = _M_memobj_in.lock();
 
-			m0->EnqueueWrite(arr, _M_len);
+			m0->EnqueueWrite(arr, _M_len * sizeof(T));
 		}
 		void								run()
 		{
@@ -259,14 +278,13 @@ namespace OCL
 		std::weak_ptr<Program>				_M_prg;
 
 		std::vector<std::weak_ptr<Kernel>>	_M_kernels;
+		
+		std::weak_ptr<MemObj>				_M_memobj_in;
 		std::weak_ptr<MemObj>				_M_memobj0;
 		std::weak_ptr<MemObj>				_M_memobj1;
 		std::weak_ptr<MemObj>				_M_memobj_out;
-	};
-
-	void OCLtest(OCL::Manager& ocl);
-
+	};	
 }
 
-
 #endif
+
