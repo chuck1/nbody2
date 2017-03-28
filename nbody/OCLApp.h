@@ -59,11 +59,9 @@ public:
 		memobj_header = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(Header));
 		memobj_header->EnqueueWrite(&header, sizeof(Header));
 
-		/*unsigned int counter = 0;
-		auto memobj_counter = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
-		memobj_counter->EnqueueWrite(&counter, sizeof(unsigned int));*/
+		memobj_ret = ocl->create_buffer(CL_MEM_READ_WRITE, sizeof(unsigned int));
 
-		auto memobj_dt_input = ocl->create_buffer(CL_MEM_READ_WRITE, (n + p) * sizeof(double));
+		memobj_dt_input = ocl->create_buffer(CL_MEM_READ_WRITE, (n + p) * sizeof(double));
 
 
 		// set kernel args
@@ -73,7 +71,7 @@ public:
 		kernel_calc_acc->set_arg(memobj_bodies1, 2);
 		kernel_calc_acc->set_arg(memobj_pairs, 3);
 		kernel_calc_acc->set_arg(memobj_dt_input, 4);
-		//kernel_calc_acc->set_arg(memobj_counter, 5);
+		kernel_calc_acc->set_arg(memobj_ret, 5);
 
 		kernel_step->set_arg(memobj_header, 0);
 		kernel_step->set_arg(memobj_bodies0, 1);
@@ -96,35 +94,29 @@ public:
 		kernel_dt_store->set_arg(routine_min_dt->_M_memobj_out.lock(), 0);
 		kernel_dt_store->set_arg(memobj_header, 1);
 
-#if 1
-		// test
-		const unsigned int n1 = 35;
-		unsigned int arr[n1];
-		for (unsigned int i = 0; i < n1; ++i)
+#if 0
+		for (int n1 = 1; n1 < 24; ++n1)
 		{
-			arr[i] = i+1;
+			cl_uint * arr = new cl_uint[n1];
+			for (unsigned int i = 0; i < n1; ++i)
+			{
+				arr[i] = i + 1;
+			}
+
+			OCL::RoutineArrayReduce<unsigned int> routine;
+			routine._M_mgr = ocl;
+			routine._M_prg = program;
+			routine.init("k_sum_uint", n1, 4);
+			routine.write(arr);
+
+			routine.run();
+
+			unsigned int res;
+
+			routine._M_memobj_out.lock()->EnqueueRead(&res, sizeof(unsigned int));
+
+			printf("sum of 1 ... %8u = %8lu\n", n1, res);
 		}
-
-		OCL::RoutineArrayReduce<unsigned int> routine;
-		routine._M_mgr = ocl;
-		routine._M_prg = program;
-		routine.init("k_sum_uint", n1, 4);
-		routine.write(arr);
-
-		routine.run();
-
-		unsigned int res;
-
-		routine._M_memobj_out.lock()->EnqueueRead(&res, sizeof(unsigned int));
-
-		/*unsigned long arr0[n1];
-		unsigned long arr1[1];
-
-		routine._M_memobj0.lock()->EnqueueRead(&arr0, n1 * sizeof(unsigned long));
-
-		routine._M_memobj1.lock()->EnqueueRead(&arr1, sizeof(unsigned long));*/
-
-		printf("sum of 1 ... %u = %lu\n", n1, res);
 #endif
 
 		
@@ -152,6 +144,8 @@ public:
 	std::shared_ptr<OCL::MemObj>	memobj_bodies1;
 	std::shared_ptr<OCL::MemObj>	memobj_pairs;
 	std::shared_ptr<OCL::MemObj>	memobj_header;
+	std::shared_ptr<OCL::MemObj>	memobj_ret;
+	std::shared_ptr<OCL::MemObj>	memobj_dt_input;
 
 	std::shared_ptr<OCL::Kernel>	kernel_calc_acc;
 	std::shared_ptr<OCL::Kernel>	kernel_step;

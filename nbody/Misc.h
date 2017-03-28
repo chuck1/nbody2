@@ -26,6 +26,7 @@ public:
 };
 
 unsigned int	next_power_of_two(unsigned int x);
+unsigned int	next_multiple_of(unsigned int x, unsigned int n);
 
 bool			should_print_step(int i, int m);
 bool			should_save_frame(int i);

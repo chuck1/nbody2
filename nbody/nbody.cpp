@@ -132,12 +132,74 @@ void print_usage(boost::program_options::options_description & desc)
 App * new_app_simulate(){ return new AppSimulate(); }
 App * new_app_render(){ return new AppRender(); }
 
+
+void kernel(int global_id, int local_id, int local_size, int gri, int len, unsigned int & ret)
+{
+	if (global_id > (len - 1)) return;
+
+	// Copy from global to local memory
+	//loc[local_id] = input[global_id];
+
+	// Loop for computing localSums : divide WorkGroup into 2 parts
+	for (unsigned int stride = local_size / 2; stride > 0; stride /= 2)
+	{
+		// Waiting for each 2x2 addition into given workgroup
+		//barrier(CLK_LOCAL_MEM_FENCE);
+
+		if (local_id > (stride - 1)) break;
+
+		if ((global_id + stride) > (len - 1)) continue;
+
+		++ret;
+
+		//loc[local_id] = loc[local_id] + loc[local_id + stride];
+	}
+}
+
+void test_kernel(int local_size, int len, int gs)
+{
+
+	
+
+	cl_uint ret = 0;
+
+	for (int global_id = 0; global_id < gs; ++global_id)
+	{
+		int local_id = global_id % local_size;
+
+		int gri = (global_id - local_id) / local_size;
+
+		printf("gi %8i li %8i\n", global_id, local_id);
+
+		kernel(global_id, local_id, local_size, gri, len, ret);
+	}
+
+	printf("ret %8u\n", ret);
+
+}
+
+void test_kernel()
+{
+	test_kernel(4, 9, 12);
+	test_kernel(4, 3, 4);
+}
+
+
+
+
+
+
+
 int _tmain(int argc, char* argv[])
 {
 	/*auto oclm = std::make_shared<OCL::Manager>();
 	oclm->test();
 	getchar();
 	return 0;*/
+
+	test_kernel();
+	//getchar();
+	//return 0;
 
 	init_signal();
 

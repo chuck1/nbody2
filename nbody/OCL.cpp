@@ -101,7 +101,7 @@ void								OCL::Manager::init()
 }
 std::shared_ptr<OCL::MemObj>		OCL::Manager::create_buffer(cl_mem_flags mem_flags, unsigned int size)
 {
-	printf("create buffer %16u B %16u KB\n", size, size/1024);
+	//printf("create buffer %16u B %16u KB\n", size, size/1024);
 
 	int rc;
 	std::shared_ptr<OCL::MemObj> ret = std::make_shared<OCL::MemObj>();

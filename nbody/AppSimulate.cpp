@@ -127,7 +127,7 @@ int					AppSimulate::simulate()
 
 	int dt_len = n + p;
 
-	
+	double * dt_input = new double[n + p];
 
 	for (int i = 0; i < m; ++i)
 	{
@@ -179,6 +179,20 @@ int					AppSimulate::simulate()
 			ocl_app->memobj_header->EnqueueRead(&header, sizeof(Header));
 			print_simulation_step(i);
 		}
+
+#if 0
+		unsigned int ret;
+		ocl_app->memobj_ret->EnqueueRead(&ret, sizeof(unsigned int));
+		printf("ret = %8u p = %8u (n+p-1) = %8u\n", ret, p, n+p-1);
+
+
+		ocl_app->memobj_dt_input->EnqueueRead(dt_input, sizeof(double)* (n + p));
+		for (int i = 0; i < (n + p); ++i){
+			if (dt_input[i] < 1.0E0)
+				printf("  %8i %16.2e\n", i, dt_input[i]);
+		}
+#endif
+		// at n=64, there is a bug, dt comes out 0 for all time steps
 
 		if (signaled == 1)
 		{

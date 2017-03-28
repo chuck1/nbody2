@@ -199,8 +199,8 @@ namespace OCL
 
 			unsigned int l = len;
 
-			unsigned int gs = next_power_of_two(l);
-			unsigned int ls = std::min(gs, N);
+			unsigned int gs = next_multiple_of(l, N);
+			unsigned int ls = N; // std::min(gs, N);
 			unsigned int gc = gs / ls;
 
 			if (_M_memobj_in.expired())
@@ -212,6 +212,9 @@ namespace OCL
 			std::shared_ptr<OCL::MemObj> m0 = mgr->create_buffer(CL_MEM_READ_WRITE, gc * sizeof(T));
 			std::shared_ptr<OCL::MemObj> m1 = mgr->create_buffer(CL_MEM_READ_WRITE, gc * sizeof(T));
 
+			std::shared_ptr<OCL::MemObj> m_ret = mgr->create_buffer(CL_MEM_READ_WRITE, sizeof(cl_uint));
+
+			_M_memobj_ret = m_ret;
 			_M_memobj0 = m0;
 			_M_memobj1 = m1;
 
@@ -244,16 +247,17 @@ namespace OCL
 
 				k->set_arg(m, 1);
 				k->set_arg(3, N * sizeof(T));
+				k->set_arg(m_ret, 4);
 
 				_M_kernels.push_back(k);
 
 				
 
 				l = gc;
-				gs = gc;
-				ls = std::min(gs, N);
+				gs = next_multiple_of(l, N); //gc;
+				ls = N; //std::min(gs, N);
 				gc = gs / ls;
-			} while (gs > 1);
+			} while (l > 1);
 			
 			_M_memobj_out = m0;
 		}
@@ -265,11 +269,21 @@ namespace OCL
 		}
 		void								run()
 		{
+			cl_uint ret = 0;
+
 			for (unsigned int i = 0; i < _M_kernels.size(); ++i)
 			{
+				ret = 0;
+				_M_memobj_ret.lock()->EnqueueWrite(&ret, sizeof(cl_uint));
+
 				std::shared_ptr<OCL::Kernel> k = _M_kernels[i].lock();
 				k->enqueue_ND_range_kernel();
+
+				_M_memobj_ret.lock()->EnqueueRead(&ret, sizeof(cl_uint));
+				printf("run routine level %4u ret = %u\n", i, ret);
 			}
+
+			
 		}
 
 		unsigned int						_M_len;
@@ -283,6 +297,7 @@ namespace OCL
 		std::weak_ptr<MemObj>				_M_memobj0;
 		std::weak_ptr<MemObj>				_M_memobj1;
 		std::weak_ptr<MemObj>				_M_memobj_out;
+		std::weak_ptr<MemObj>				_M_memobj_ret;
 	};	
 }
 

@@ -287,7 +287,8 @@ __kernel void k_sum_uint(
 	__global const unsigned int * input,
 	__global unsigned int * plen,
 	__global unsigned int * output,
-	__local unsigned int * loc)
+	__local unsigned int * loc,
+	__global volatile unsigned int * ret)
 {
 	/*
 	length of partial must be at least number of work groups
@@ -316,12 +317,11 @@ __kernel void k_sum_uint(
 
 		if ((global_id + stride) > (len - 1)) continue;
 
+		atomic_inc(ret);
+
 		loc[local_id] = loc[local_id] + loc[local_id + stride];
 	}
 
-	//barrier(CLK_LOCAL_MEM_FENCE);
-
-	// write result into partial[nWorkGroups]
 	if (local_id == 0) output[get_group_id(0)] = loc[0];
 }
 
@@ -329,7 +329,8 @@ __kernel void k_min_double(
 	__global const double * input,
 	__global unsigned int * plen,
 	__global double * output,
-	__local double * loc)
+	__local double * loc,
+	__global volatile unsigned int * ret)
 {
 	/*
 	length of partial must be at least number of work groups
@@ -357,6 +358,8 @@ __kernel void k_min_double(
 		if (local_id > (stride - 1)) break;
 
 		if ((global_id + stride) > (len - 1)) continue;
+
+		atomic_inc(ret);
 
 		loc[local_id] = min(loc[local_id], loc[local_id + stride]);
 	}
@@ -520,8 +523,12 @@ __kernel void calc_acc(
 	__global struct Body0 * bodies0,
 	__global struct Body1 * bodies1,
 	__global struct Pair * pairs,
-	__global double * dt_input)
+	__global double * dt_input,
+	__global volatile unsigned int * ret)
 {
+	unsigned int gi = get_global_id(0);
+	if (gi == 0) atomic_xchg(ret, 0);
+
 	/* MUST USE ONLY ONE WORK GROUP
 	*/
 
@@ -570,6 +577,8 @@ __kernel void calc_acc(
 
 			int k = get_pair(pairs, p, i0, j0);
 
+			atomic_inc(ret);
+
 			calc_acc_sub(&pairs[k], header, bodies0, bodies1, dt_input, k);
 		}
 	}
@@ -597,12 +606,16 @@ __kernel void dt_calc(
 	
 	if (a == 0)
 	{
-		dt_input[p + ind] = 0.0;
+		dt_input[p + ind] = 1.0;
+	}
+	else if (v == 0)
+	{
+		dt_input[p + ind] = 1.0;
 	}
 	else
 	{
 		dt_input[p + ind] = TIME_STEP_FACTOR_ACC * v / a;
-			
+		
 		dt_input[p + ind] = max(dt_input[p + ind], 1.0E-5);
 	}
 }

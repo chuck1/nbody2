@@ -30,9 +30,19 @@ unsigned int	next_power_of_two(unsigned int x)
 	}
 	return ret;
 }
-
+unsigned int	next_multiple_of(unsigned int x, unsigned int n)
+{
+	unsigned int ret = n;
+	while (ret < x)
+	{
+		ret += n;
+	}
+	return ret;
+}
 bool			should_print_step(int i, int m)
 {
+	return true;
+	
 	int a = m / 100;
 
 	if (a > 0)
