@@ -222,7 +222,7 @@ namespace OCL
 			
 			do
 			{
-				printf("gs=%8u ls=%8u gc=%8u l=%8u\n", gs, ls, gc, l);
+				//printf("gs=%8u ls=%8u gc=%8u l=%8u\n", gs, ls, gc, l);
 
 				auto k = prg->create_kernel(s);
 
@@ -269,18 +269,18 @@ namespace OCL
 		}
 		void								run()
 		{
-			cl_uint ret = 0;
+			//cl_uint ret = 0;
 
 			for (unsigned int i = 0; i < _M_kernels.size(); ++i)
 			{
-				ret = 0;
-				_M_memobj_ret.lock()->EnqueueWrite(&ret, sizeof(cl_uint));
+				//ret = 0;
+				//_M_memobj_ret.lock()->EnqueueWrite(&ret, sizeof(cl_uint));
 
 				std::shared_ptr<OCL::Kernel> k = _M_kernels[i].lock();
 				k->enqueue_ND_range_kernel();
 
-				_M_memobj_ret.lock()->EnqueueRead(&ret, sizeof(cl_uint));
-				printf("run routine level %4u ret = %u\n", i, ret);
+				//_M_memobj_ret.lock()->EnqueueRead(&ret, sizeof(cl_uint));
+				//printf("run routine level %4u ret = %u\n", i, ret);
 			}
 
 			

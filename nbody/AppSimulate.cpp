@@ -39,7 +39,8 @@ void				AppSimulate::run(std::vector<std::string> vec)
 		("n", boost::program_options::value<int>(), "number of bodies")
 		("gen", boost::program_options::value<std::string>(), "generator function")
 		("file", boost::program_options::value<std::string>(), "filename of simulation to read")
-		("vf", boost::program_options::value<double>(), "velocity factor for generator function");
+		("vf", boost::program_options::value<double>(), "velocity factor for generator function")
+		("i", "insert body");
 
 	try
 	{
@@ -92,13 +93,15 @@ int					AppSimulate::simulate()
 
 	header.t = 0;
 	header.dt = 0;
-
+	
 	gen_func();
 
 	generate_pairs();
 
 	int n = bodies0.size();
 	int p = n*(n - 1) / 2;
+
+	header.bodies_size = n;
 
 	hist.resize(n);
 
@@ -401,6 +404,17 @@ void				AppSimulate::generate_disc()
 		}
 	}
 
+	// extra
+	Body0 & b0 = bodies0[0];
+	Body1 & b1 = bodies1[0];
+
+	b0.pos.v[0] = 0;
+	b0.pos.v[1] = 0;
+	b0.pos.v[2] = b0.radius * 20.0;
+
+	b1.vel.v[0] = 0;
+	b1.vel.v[1] = 0;
+	b1.vel.v[2] = 0;
 }
 void				AppSimulate::generate_read()
 {
@@ -420,6 +434,32 @@ void				AppSimulate::generate_read()
 	header = f->header;
 	bodies0 = f->bodies0;
 	bodies1 = hist.bodies1;
+
+	if (vm.count("i"))
+	{
+		Body0 b0;
+		Body1 b1;
+
+		b0.radius = bodies0[0].radius;
+		b1.mass = bodies1[0].mass;
+		b1.density = bodies1[0].density;
+
+		b0.pos.v[0] = 0;
+		b0.pos.v[1] = 0;
+		b0.pos.v[2] = b0.radius * 20;
+
+		b0.q.v[0] = 1;
+		b0.q.v[1] = 0;
+		b0.q.v[2] = 0;
+		b0.q.v[3] = 0;
+
+		b1.vel.v[0] = 0;
+		b1.vel.v[1] = 0;
+		b1.vel.v[2] = b0.radius * 20;
+
+		bodies0.push_back(b0);
+		bodies1.push_back(b1);
+	}
 }
 void				AppSimulate::generate_pairs()
 {

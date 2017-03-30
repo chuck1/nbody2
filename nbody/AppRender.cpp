@@ -38,8 +38,8 @@ AppRender::AppRender()
 	perspective_near = 1.0;
 	perspective_far = 10000.0;
 
-	window_width = 200;
-	window_height = 200;
+	window_width = 800;
+	window_height = 800;
 
 	q_view = glm::quat(1, 0, 0, 0);
 

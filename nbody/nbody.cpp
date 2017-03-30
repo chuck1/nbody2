@@ -185,11 +185,6 @@ void test_kernel()
 }
 
 
-
-
-
-
-
 int _tmain(int argc, char* argv[])
 {
 	/*auto oclm = std::make_shared<OCL::Manager>();
@@ -197,7 +192,7 @@ int _tmain(int argc, char* argv[])
 	getchar();
 	return 0;*/
 
-	test_kernel();
+	//test_kernel();
 	//getchar();
 	//return 0;
 
