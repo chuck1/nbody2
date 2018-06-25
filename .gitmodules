@@ -1,0 +1,3 @@
+[submodule "modules/pbs"]
+	path = modules/pbs
+	url = git@github.com:chuck1/python_build_system
