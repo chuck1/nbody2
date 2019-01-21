@@ -1,4 +1,3 @@
-#include "stdafx.h"
 
 #include "OCL.h"
 #include "AppSimulate.h"

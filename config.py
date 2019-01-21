@@ -5,9 +5,9 @@ import pbs
 #self.execfile(os.path.join('modules/manim/config.py'))
 #self.execfile(os.path.join('modules/gplot/config.py'))
 #self.execfile(os.path.join('modules/graph/config.py'))
-self.execfile(os.path.join('modules/esolv/config.py'))
+#self.execfile(os.path.join('modules/esolv/config.py'))
 
-l = pbs.LibraryPython(self, 'esolv_python', __file__)
+l = pbs.LibraryPython(self, 'nbody', __file__)
 
 #l = pbs.classes.Static.Static("graph", self)
 
@@ -18,17 +18,17 @@ l = pbs.LibraryPython(self, 'esolv_python', __file__)
 
 #l.doc_out_dir = "/media/sf_P_DRIVE/html/graph"
 
-l.add_dep('esolv')
-l.add_dep('graph')
-l.add_dep('gplot')
-l.add_dep('manim')
+#l.add_dep('esolv')
+#l.add_dep('graph')
+#l.add_dep('gplot')
+#l.add_dep('manim')
 
-l.args.libraries.append('glpk')
+#l.args.libraries.append('glpk')
 #l.args.libraries.append('python2.7')
-l.args.libraries.append('boost_python-py36')
-l.args.libraries.append('python3.6m')
+#l.args.libraries.append('boost_python-py36')
+#l.args.libraries.append('python3.6m')
 
 self.parts.append(l)
 
-self.execfile(os.path.join(__dir__, "tests/config.py"))
+#self.execfile(os.path.join(__dir__, "tests/config.py"))
 

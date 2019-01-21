@@ -1,4 +1,3 @@
-#include "stdafx.h"
 
 #include "mymath.h"
 #include "AppRender.h"
